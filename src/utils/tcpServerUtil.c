@@ -122,7 +122,7 @@ int handleTCPEchoClient(int clntSocket) {
 }
 
 
-void handle_client_read(struct selector_key *key) {
+void handleClientRead(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     char buffer[BUFSIZE]; // Buffer para el mensaje
     // Recibir mensaje del cliente
@@ -156,7 +156,7 @@ void handleTCPEchoClientClose(struct selector_key *key) {
     close(key->fd); // Cerrar el socket del cliente
 }
 
-void handleMasterSocketRead(struct selector_key *key) {
+void handleMasterRead(struct selector_key *key) {
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
     char *message = "Welcome to the server\r\n";
@@ -191,7 +191,7 @@ void handleMasterSocketRead(struct selector_key *key) {
 
     // handler de cliente
     fd_handler client_handler = {
-        .handle_read = handle_client_read,
+        .handle_read = handleClientRead,
         .handle_close = handleTCPEchoClientClose,
     };
 

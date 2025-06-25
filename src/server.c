@@ -72,7 +72,7 @@ int main(int argc , char *argv[])
     }
 
     selector_register(selector, master_socket, &(fd_handler){
-        .handle_read =  handleMasterSocketRead, // Set the function to handle incoming connections
+        .handle_read =  handleMasterRead, // Set the function to handle incoming connections
         .handle_write = NULL, // No write handler needed for the listening socket
         .handle_close = NULL, // Define your close handler here
     }, OP_READ, NULL);

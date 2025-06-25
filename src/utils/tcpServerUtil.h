@@ -16,9 +16,9 @@ int acceptTCPConnection(int servSock);
 int handleTCPEchoClient(int clntSocket);  // Changed return type to int to match implementation
 
 // Handle read events on the master socket (new connections)
-void handleMasterSocketRead(struct selector_key *key);
+void handleMasterRead(struct selector_key *key);
 
-void handle_client_read(struct selector_key *key);
+void handleClientRead(struct selector_key *key);
 
 void handleTCPEchoClientClose(struct selector_key *key);
 
