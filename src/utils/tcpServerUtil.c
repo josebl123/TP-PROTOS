@@ -7,8 +7,10 @@
 #include "logger.h"
 #include "util.h"
 
+#include "../selector.h"
+
 #define MAXPENDING 5 // Maximum outstanding connection requests
-#define BUFSIZE 256
+#define BUFSIZE 1024 // Size of receive buffer
 #define MAX_ADDR_BUFFER 128
 
 static char addrBuffer[MAX_ADDR_BUFFER];
@@ -117,4 +119,88 @@ int handleTCPEchoClient(int clntSocket) {
 
     close(clntSocket);
     return 0;
+}
+
+
+void handle_client_read(struct selector_key *key) {
+    int clntSocket = key->fd; // Socket del cliente
+    char buffer[BUFSIZE]; // Buffer para el mensaje
+    // Recibir mensaje del cliente
+    ssize_t numBytesRcvd = recv(clntSocket, buffer, BUFSIZE, 0);
+    if (numBytesRcvd < 0) {
+        log(ERROR, "recv() failed on client socket %d", clntSocket);
+        return; // TODO definir codigos de error
+    }
+    else if (numBytesRcvd == 0) {
+        log(INFO, "Client socket %d closed connection", clntSocket);
+        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
+        close(clntSocket); // Cerrar el socket del cliente
+        return;
+    } else {
+        // Enviar mensaje de vuelta al cliente
+        ssize_t numBytesSent = send(clntSocket, buffer, numBytesRcvd, 0);
+        if (numBytesSent < 0) {
+            log(ERROR, "send() failed on client socket %d", clntSocket);
+            return; // TODO definir codigos de error
+        }
+        else if (numBytesSent != numBytesRcvd) {
+            log(ERROR, "send() sent unexpected number of bytes on client socket %d", clntSocket);
+            return; // TODO definir codigos de error
+        }
+    }
+
+}
+
+void handleTCPEchoClientClose(struct selector_key *key) {
+    printf("Closing client socket %d\n", key->fd);
+    close(key->fd); // Cerrar el socket del cliente
+}
+
+void handleMasterSocketRead(struct selector_key *key) {
+    struct sockaddr_in address;
+    socklen_t addrlen = sizeof(address);
+    char *message = "Welcome to the server\r\n";
+
+    // aceptamos
+    int new_socket = acceptTCPConnection(key->fd);
+    if (new_socket < 0) {
+        perror("accept");
+        return;
+    }
+
+    // bloqueo = no
+    if (selector_fd_set_nio(new_socket) == -1) {
+        close(new_socket);
+        perror("Failed to set client socket to non-blocking mode");
+        return;
+    }
+
+    // loggeo (creo q ni necesario pero queda lindo)
+    getpeername(new_socket, (struct sockaddr*)&address, &addrlen);
+    printf("New connection, socket fd is %d, ip is: %s, port: %d\n",
+           new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+
+    // mensaje de bienvenida
+    if (send(new_socket, message, strlen(message), 0) != strlen(message)) {
+        perror("send");
+        close(new_socket);
+        return;
+    }
+
+    puts("Welcome message sent successfully");
+
+    // handler de cliente
+    fd_handler client_handler = {
+        .handle_read = handle_client_read,
+        .handle_close = handleTCPEchoClientClose,
+    };
+
+    // crear socket activo
+    if (SELECTOR_SUCCESS != selector_register(key->s, new_socket, &client_handler, OP_READ, NULL)) {
+        perror("Failed to register client socket");
+        close(new_socket);
+        return;
+    }
+
+    printf("Client socket %d registered with selector\n", new_socket);
 }
