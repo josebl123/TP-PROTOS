@@ -134,7 +134,6 @@ void handleClientRead(struct selector_key *key) {
     else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
-        close(clntSocket); // Cerrar el socket del cliente
         return;
     } else {
         // Enviar mensaje de vuelta al cliente
