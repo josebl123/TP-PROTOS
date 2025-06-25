@@ -11,8 +11,8 @@
 #include "../selector.h"
 
 #define MAXPENDING 5 // Maximum outstanding connection requests
-#define BUFSIZE 1024 // Size of receive buffer
 #define MAX_ADDR_BUFFER 128
+#define BUFSIZE 1024 // Buffer size for client data
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 /*
@@ -88,47 +88,13 @@ int acceptTCPConnection(int servSock) {
     return clntSock;
 }
 
-int handleTCPEchoClient(int clntSocket) {
-    char buffer[BUFSIZE]; // Buffer for echo string
-    // Receive message from client
-    ssize_t numBytesRcvd = recv(clntSocket, buffer, BUFSIZE, 0);
-    if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed");
-        return -1;   // TODO definir codigos de error
-    }
-
-    // Send received string and receive again until end of stream
-    while (numBytesRcvd > 0) { // 0 indicates end of stream
-        // Echo message back to client
-        ssize_t numBytesSent = send(clntSocket, buffer, numBytesRcvd, 0);
-        if (numBytesSent < 0) {
-            log(ERROR, "send() failed");
-            return -1;   // TODO definir codigos de error
-        }
-        else if (numBytesSent != numBytesRcvd) {
-            log(ERROR, "send() sent unexpected number of bytes ");
-            return -1;   // TODO definir codigos de error
-        }
-
-        // See if there is more data to receive
-        numBytesRcvd = recv(clntSocket, buffer, BUFSIZE, 0);
-        if (numBytesRcvd < 0) {
-            log(ERROR, "recv() failed");
-            return -1;   // TODO definir codigos de error
-        }
-    }
-
-    close(clntSocket);
-    return 0;
-}
-
 void handleClientWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
 
     char * initialAddress = data->buffer + data->bufferOffset;
 
-    ssize_t numBytesSent = send(clntSocket, initialAddress, data->bufferSize - data->bufferOffset, MSG_DONTWAIT);
+    ssize_t numBytesSent = send(clntSocket, initialAddress, data->bufferSize, MSG_DONTWAIT);
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
@@ -145,40 +111,35 @@ void handleClientWrite(struct selector_key *key) {
         return;
     } else {
         // Mensaje enviado correctamente, desregistrar el interés de escritura
-        data->bufferOffset += numBytesSent; // Actualizar el offset del buffer
-        if(data->bufferOffset >= data->bufferSize) {
-            // Si se envió todo el buffer, liberar memoria
-            free(data->buffer);
-            data->buffer = NULL; // Evitar uso posterior del puntero
-            selector_set_interest_key(key, OP_READ);
+        if (data->bufferSize == numBytesSent) {
+            data->bufferOffset = 0; // Reiniciar el offset del buffer
         }
+        data->bufferSize -= numBytesSent; // Actualizar el tamaño del buffer
+        selector_set_interest_key(key, OP_READ);
     }
 }
 
 
 void handleClientRead(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
-    char * buffer = malloc( BUFSIZE * sizeof(char)); // Buffer para el mensaje FIXME (podriamos crearlo una vez y reutilizarlo directamente en clientData)
     clientData *data = (clientData *) key->data;
     // Recibir mensaje del cliente
-    ssize_t numBytesRcvd = recv(clntSocket, buffer, BUFSIZE, 0);
+    ssize_t numBytesRcvd = recv(clntSocket, data->buffer + data->bufferOffset, BUFSIZE - data->bufferOffset, 0);
     if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return; // TODO definir codigos de error
     }
     else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-               free(data->buffer); // Liberar el buffer
+        free(data->buffer); // Liberar el buffer
         selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return;
     } else {
         // Enviar mensaje de vuelta al cliente
         selector_set_interest_key(key, OP_WRITE);
-        data->buffer = buffer; // Guardar el buffer en los datos del selector_key
-        data->bufferSize = numBytesRcvd; // Guardar el tamaño del buffer
-        data->bufferOffset = 0;
-        // Loggear el mensaje recibido
-        log(INFO, "Received %zd bytes from client socket %d: %.*s", numBytesRcvd, clntSocket, (int)numBytesRcvd, buffer);
+        data->bufferSize += numBytesRcvd; // Guardar el tamaño del buffer
+        log(INFO, "Received %zd bytes from client socket %d: %.*s", numBytesRcvd, clntSocket, (int)numBytesRcvd, data->buffer);
+
     }
 
 }
@@ -192,7 +153,8 @@ void handleTCPEchoClientClose(struct selector_key *key) {
 void handleMasterRead(struct selector_key *key) {
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    char *message = "Welcome to the server\r\n";
+    char *message = "W\r\n";
+    size_t messageLen = strlen(message);
 
     // aceptamos
     int new_socket = acceptTCPConnection(key->fd);
@@ -213,36 +175,53 @@ void handleMasterRead(struct selector_key *key) {
     printf("New connection, socket fd is %d, ip is: %s, port: %d\n",
            new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
-    // mensaje de bienvenida
-    if (send(new_socket, message, strlen(message), 0) != strlen(message)) { //mmm esto capaz bloquea
-        perror("send");
+    // Prepare client data structure
+    clientData *data = malloc(sizeof(clientData));
+    if (data == NULL) {
+        perror("Failed to allocate memory for client data");
         close(new_socket);
         return;
     }
 
-    puts("Welcome message sent successfully");
+    // Initialize client data and store welcome message
+    data->buffer = malloc( BUFSIZE * sizeof(char));
+    if (data->buffer == NULL) {
+        perror("Failed to allocate memory for welcome message");
+        free(data);
+        close(new_socket);
+        return;
+    }
+
+    memcpy(data->buffer, message, messageLen);
+    data->bufferSize = messageLen;
+    data->bufferOffset = 0;
 
     // handler de cliente
-    fd_handler * client_handler = malloc(sizeof(fd_handler));
+    fd_handler *client_handler = malloc(sizeof(fd_handler));
     if (client_handler == NULL) {
         perror("Failed to allocate memory for client handler");
+        free(data->buffer);
+        free(data);
         close(new_socket);
         return;
     }
+
     // Inicializar el handler de cliente
     client_handler->handle_read = handleClientRead;
     client_handler->handle_write = handleClientWrite;
     client_handler->handle_block = NULL; // No se usa en este caso
-   	client_handler->handle_close = handleTCPEchoClientClose;
+    client_handler->handle_close = handleTCPEchoClientClose;
 
-    clientData *data = malloc(sizeof(clientData));
-
-    // crear socket activo
-    if (SELECTOR_SUCCESS != selector_register(key->s, new_socket,client_handler, OP_READ, data)) {
+    // Registrar con interés inicial en escritura para enviar mensaje de bienvenida
+    if (SELECTOR_SUCCESS != selector_register(key->s, new_socket, client_handler, OP_WRITE, data)) {
         perror("Failed to register client socket");
+        free(client_handler);
+        free(data->buffer);
+        free(data);
         close(new_socket);
         return;
     }
 
     printf("Client socket %d registered with selector\n", new_socket);
 }
+

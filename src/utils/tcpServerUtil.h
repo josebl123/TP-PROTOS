@@ -17,9 +17,6 @@ int setupTCPServerSocket(const char *service);
 // Accept a new TCP connection on a server socket
 int acceptTCPConnection(int servSock);
 
-// Handle new TCP client
-int handleTCPEchoClient(int clntSocket);  // Changed return type to int to match implementation
-
 // Handle read events on the master socket (new connections)
 void handleMasterRead(struct selector_key *key);
 
