@@ -5,6 +5,11 @@
 #include <sys/socket.h>
 #include "../selector.h"  // Added include for selector_key struct
 
+typedef struct {
+  char *buffer;
+  size_t bufferSize;
+  size_t bufferOffset;
+} clientData;
 
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *service);

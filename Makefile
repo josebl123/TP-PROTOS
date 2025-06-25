@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g
+CFLAGS = -Wall -Wextra -g -Isrc/utils
 BIN = server
 TEST_BIN = test_program
 SRC_DIR = src

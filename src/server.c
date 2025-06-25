@@ -17,6 +17,7 @@
 #include <netinet/in.h>
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros
 #include "selector.h"
+#include <signal.h>
 
 #include "utils/tcpServerUtil.h"
 
