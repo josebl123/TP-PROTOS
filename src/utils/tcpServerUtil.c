@@ -275,7 +275,14 @@ unsigned handleRequestRead(struct selector_key *key) {
             buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
 
             data->destination.addressType = IPV6; // Guardar el tipo de dirección
-            inet_pton(AF_INET6, ipv6, &data->destination.address.ipv6); // Guardar la dirección IPv6 TODO check but i think converts fine (string to number)
+            struct in6_addr ipv6Addr; // Estructura para la dirección IPv6
+            memset(&ipv6Addr, 0, sizeof(ipv6Addr)); // Inicializar la estructura
+            // Convertir la dirección IPv6 de texto a binario
+            if (inet_pton(AF_INET6, ipv6, &ipv6Addr) != 1) {
+                log(ERROR, "Invalid IPv6 address format: %s", ipv6);
+                return ERROR_CLIENT; // TODO definir codigos de error
+            }
+            data->destination.address.ipv6 = ipv6Addr; // Guardar la dirección IPv6
             data->destination.port = port; // Guardar el puerto
 
             log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
