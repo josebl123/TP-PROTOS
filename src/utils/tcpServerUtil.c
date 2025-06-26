@@ -24,6 +24,35 @@ static char addrBuffer[MAX_ADDR_BUFFER];
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
+void handleTcpClose(unsigned state, struct selector_key *key) {
+    int clntSocket = key->fd; // Socket del cliente
+    clientData *data = (clientData *) key->data;
+    selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
+    log(INFO, "Client socket %d done", clntSocket);
+    free(data->buffer->data);
+    free(data->buffer);
+    free(data);
+}
+
+ static const struct state_definition states[] = {
+    [HELLO_READ] =    { .state = HELLO_READ, .on_read_ready = handleHelloRead },
+    [HELLO_WRITE] =   { .state = HELLO_WRITE, .on_write_ready = handleHelloWrite },
+    [AUTH_READ] =     { .state = AUTH_READ, .on_read_ready = handleAuthRead },
+    [AUTH_WRITE] =    { .state = AUTH_WRITE, .on_write_ready = handleAuthWrite },
+    [REQUEST_READ] =  { .state = REQUEST_READ, .on_read_ready = handleRequestRead },
+    [REQUEST_WRITE] = { .state = REQUEST_WRITE, .on_write_ready = handleRequestWrite },
+    [DONE] =          { .state = DONE, .on_arrival = handleTcpClose },
+    [ERROR_CLIENT] =  { .state = ERROR_CLIENT,.on_arrival = handleTcpClose},
+};
+
+ static const fd_handler client_handler = {
+    .handle_read = socks5_read, // Initial read handler
+    .handle_write = socks5_write, // Initial write handler
+    .handle_block = NULL, // Not used in this case
+    .handle_close = NULL // Close handler
+};
+
+
 int setupTCPServerSocket(const char *service) {
     // Construct the server address structure
     struct addrinfo addrCriteria;                   // Criteria for address match
@@ -108,13 +137,10 @@ unsigned handleRequestWrite(struct selector_key *key) {
             return REQUEST_WRITE;
         }
         log(ERROR, "send() failed on client socket %d", clntSocket);
-        free(data->buffer); // Liberar el buffer
         data->buffer = NULL; // Evitar uso posterior del puntero
         return ERROR_CLIENT; // TODO definir codigos de error
     } else if (numBytesSent == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
         // Mensaje enviado correctamente, desregistrar el interés de escritura
@@ -139,34 +165,19 @@ unsigned handleRequestRead(struct selector_key *key) {
     }
     else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
         // Enviar mensaje de vuelta al cliente
         selector_set_interest_key(key, OP_WRITE);
         data->bufferSize += numBytesRcvd; // Guardar el tamaño del buffer
-        log(INFO, "Received %zd bytes from client socket %d: %.*s", numBytesRcvd, clntSocket, (int)numBytesRcvd, data->buffer);
         return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
     }
 
 }
-int initializeClientData(clientData **data) {
-    *data = malloc(sizeof(clientData));
-    if (*data == NULL) {
-        log(ERROR, "Failed to allocate memory for client data");
-        return -1;
-    }
- static const struct state_definition states[] = {
-    [HELLO_READ] =    { .state = HELLO_READ, .on_read_ready = handleHelloRead },
-    [HELLO_WRITE] =   { .state = HELLO_WRITE, .on_write_ready = handleHelloWrite },
-    [AUTH_READ] =     { .state = AUTH_READ, .on_read_ready = handleAuthRead },
-    [AUTH_WRITE] =    { .state = AUTH_WRITE, .on_write_ready = handleAuthWrite },
-    [REQUEST_READ] =  { .state = REQUEST_READ, .on_read_ready = handleRequestRead },
-    [REQUEST_WRITE] = { .state = REQUEST_WRITE, .on_write_ready = handleRequestWrite },
-    [DONE] =          { .state = DONE, /*.on_arrival = handleDoneArrival, .on_departure = handleDoneDeparture */ },
-    [ERROR_CLIENT] =         { .state = ERROR_CLIENT, /* .on_arrival = handleErrorArrival, .on_departure = handleErrorDeparture */ },
-};
+
+
+
+int initializeClientData(clientData *data) {
     struct state_machine *stm = malloc(sizeof(struct state_machine));
     if (stm == NULL) {
         perror("Failed to allocate memory for state machine");
@@ -179,6 +190,7 @@ int initializeClientData(clientData **data) {
     if (buf == NULL) {
         perror("Failed to allocate memory for buffer");
         free(stm);
+        free(data);
         return -1;
     }
     buf->data = malloc(BUFSIZE * sizeof(char)); // Allocate buffer data
@@ -186,29 +198,25 @@ int initializeClientData(clientData **data) {
         perror("Failed to allocate memory for buffer data");
         free(buf);
         free(stm);
+        free(data);
+
         return -1;
     }
     buffer_init(buf, BUFSIZE, buf->data); // Initialize the buffer
 
-    (*data)->buffer = buf;
-    if ((*data)->buffer == NULL) {
+    data->buffer = buf;
+    if (data->buffer == NULL) {
         log(ERROR, "Failed to allocate memory for client buffer");
-        free(*data);
+        free(stm);
+        free(buf->data); // Free the buffer data
         return -1;
     }
 
-    (*data)->bufferSize = BUFSIZE;
-    (*data)->bufferOffset = 0;
-    (*data)->authMethod = 0xFF; // Error auth method
-    (*data)->stm = stm; // Assign the state machine to client data
+    data->bufferSize = BUFSIZE;
+    data->bufferOffset = 0;
+    data->authMethod = 0xFF; // Error auth method
+    data->stm = stm; // Assign the state machine to client data
     return 0;
-}
-
-
-void handleTCPEchoClientClose(struct selector_key *key) {
-    printf("Closing client socket %d\n", key->fd);
-    close(key->fd); // Cerrar el socket del cliente
-    free(key->data); // Liberar los datos del cliente
 }
 
 void handleMasterRead(struct selector_key *key) {
@@ -235,33 +243,22 @@ void handleMasterRead(struct selector_key *key) {
            new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
     // Prepare client data structure
-    clientData *data;
+    clientData *data = malloc(sizeof(clientData));
+     if (data == NULL) {
+        log(ERROR, "Failed to allocate memory for client data");
+        return ;
+    }
 
-    if (initializeClientData(&data) < 0) {
+    if (initializeClientData(data) < 0) {
         close(new_socket);
         return; // Error initializing client data
     }
 
-    // handler de cliente
-    fd_handler *client_handler = malloc(sizeof(fd_handler));
-    if (client_handler == NULL) {
-        perror("Failed to allocate memory for client handler");
-        free(data->buffer);
-        free(data);
-        close(new_socket);
-        return;
-    }
 
-    // Inicializar el handler de cliente
-    client_handler->handle_read = socks5_read;
-    client_handler->handle_write = socks5_write;
-    client_handler->handle_block = socks5_block; // No se usa en este caso
-    client_handler->handle_close = socks5_close;
 
     // Registrar con interés inicial en escritura para enviar mensaje de bienvenida
-    if (SELECTOR_SUCCESS != selector_register(key->s, new_socket, client_handler, OP_READ, data)) {
+    if (SELECTOR_SUCCESS != selector_register(key->s, new_socket, &client_handler, OP_READ, data)) {
         perror("Failed to register client socket");
-        free(client_handler);
         free(data->buffer);
         free(data);
         close(new_socket);
@@ -275,11 +272,11 @@ unsigned handleHelloRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de saludo del cliente
       int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
-    log(INFO, "hello Read", clntSocket);
+    log(INFO, "hello Read");
     // Recibir mensaje del cliente
     size_t writeLimit;
     uint8_t *readPtr = buffer_write_ptr(data->buffer, &writeLimit);
-    size_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     buffer_write_adv(data->buffer, numBytesRcvd);
 
     if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
@@ -288,8 +285,6 @@ unsigned handleHelloRead(struct selector_key *key) {
     }
     else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
       char socksVersion = buffer_read(data->buffer);
@@ -328,12 +323,9 @@ unsigned handleHelloWrite(struct selector_key *key) {
             return HELLO_WRITE;
         }
         log(ERROR, "send() failed on client socket %d", clntSocket);
-        free(data->buffer); // Liberar el buffer
         return ERROR_CLIENT; // TODO definir codigos de error
     } else if (numBytesSent == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
         // Mensaje enviado correctamente, desregistrar el interés de escritura
@@ -350,18 +342,16 @@ unsigned handleAuthRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de autenticación del cliente
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
-    log(INFO, "reading auth info", clntSocket);
+    log(INFO, "reading auth info");
     size_t writeLimit;
     uint8_t *readPtr = buffer_write_ptr(data->buffer, &writeLimit);
-    size_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     buffer_write_adv(data->buffer, numBytesRcvd);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
     } else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection ACA", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
         int usernameLength ; // Longitud del nombre de usuario
@@ -373,17 +363,13 @@ unsigned handleAuthRead(struct selector_key *key) {
         } else {
             // Si no es SOCKS_VERSION o no tengo suficientes bytes, error
             log(ERROR, "Unsupported authentication method or incomplete data");
-            log(ERROR, "Expected at least 2 bytes but received %zd bytes", numBytesRcvd);
-            log(ERROR, "Received socks version: %d", socksVersion);
-            free(data->buffer); // Liberar el buffer
-            selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
             return ERROR_CLIENT; // TODO definir codigos de error
         }
         if(numBytesRcvd < usernameLength + 2) { // Si no tengo suficientes bytes para el nombre de usuario
             log(ERROR, "Incomplete authentication data received");
             return AUTH_READ; // TODO definir codigos de error
         } else {
-          strncpy( data->authInfo.username, data->buffer->read, usernameLength); // Copio el nombre de usuario al buffer
+          strncpy( data->authInfo.username, (char *) data->buffer->read, usernameLength); // Copio el nombre de usuario al buffer
           buffer_read_adv(data->buffer, usernameLength); // Avanzo el puntero de lectura del buffer
           data->authInfo.username[usernameLength] = '\0'; // Asegurar que el nombre de usuario esté terminado en nulo
             log(INFO, "Received username: %s", data->authInfo.username);
@@ -392,16 +378,15 @@ unsigned handleAuthRead(struct selector_key *key) {
 
           passwordLength = buffer_read(data->buffer); // TODO: faltan chequeos de errores
 
-        if(numBytesRcvd < data->bufferOffset + passwordLength) { // Si no tengo suficientes bytes para la contraseña
+        if( false ) { // TODO: este chequeo
             log(ERROR, "Incomplete authentication data received");
             return AUTH_READ; // TODO definir codigos de error
         } else {
-          strncpy( data->authInfo.password,data->buffer->read, passwordLength); // Copio el nombre de usuario al buffer
+          strncpy( data->authInfo.password,(char *) data->buffer->read, passwordLength); // Copio el nombre de usuario al buffer
           buffer_read_adv(data->buffer, passwordLength);// Avanzo el offset del buffer
             data->authInfo.password[passwordLength] = '\0'; // Asegurar que la contraseña esté terminada en nulo
             log(INFO, "Received password: %s", data->authInfo.password);
             selector_set_interest_key(key, OP_WRITE); // TODO: devuelve estado, chequear
-            // Log the received authentication data
             return AUTH_WRITE; // Cambiar al estado de escritura de autenticación
         }
 
@@ -414,7 +399,7 @@ unsigned handleAuthWrite(struct selector_key *key) {
 
     // Enviar respuesta de autenticación al cliente
     char response[2] = {SOCKS_VERSION, 1}; // Respuesta de autenticación exitosa
-    if( strncmp(data->authInfo.username, "user", 4) == 0 && strncmp(data->authInfo.password, "pass", 4) == 0) {
+    if( strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "pass") == 0) {
         response[1] = 0; // Autenticación exitosa
     }
     ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
@@ -424,24 +409,17 @@ unsigned handleAuthWrite(struct selector_key *key) {
             // No se pudo enviar por ahora, volver a intentar más tarde
             return AUTH_WRITE;
         }
-        log(ERROR, "send() failed on client socket %d", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        data->buffer = NULL; // Evitar uso posterior del puntero
+        log(ERROR, "send() failed on client socket %d ACA", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
     } else if (numBytesSent == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
           if( response[1] != 0) { // Si la autenticación falló
             log(ERROR, "Authentication failed for client socket %d", clntSocket);
-            free(data->buffer); // Liberar el buffer
-            selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
             return ERROR_CLIENT; // TODO definir codigos de error
             }
-        if (data->bufferSize == numBytesSent) {
-            data->bufferOffset = 0; // Reiniciar el offset del buffer
+        if (sizeof(response) == numBytesSent) {
             selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir solicitud
             return REQUEST_READ; // Cambiar al estado de lectura de solicitud
         }
@@ -451,28 +429,25 @@ unsigned handleAuthWrite(struct selector_key *key) {
     }
 }
 
-
-static void socks5_close(struct selector_key *key) {
+void socks5_close(struct selector_key *key) {
     clientData *data = key->data;
     if (data != NULL) {
+      	log(INFO, "Closing client socket %d", key->fd);
         stm_handler_close(data->stm, key);
-        // cleanup
-        free(data->buffer);
-        free(data);
     }
 }
 
-static void socks5_read(struct selector_key *key) {
+void socks5_read(struct selector_key *key) {
     clientData *data = key->data;
     stm_handler_read(data->stm, key); //usar enum para detectar errores
 }
 
-static void socks5_write(struct selector_key *key) {
+void socks5_write(struct selector_key *key) {
     clientData *data = key->data;
     stm_handler_write(data->stm, key);
 }
 
-static void socks5_block(struct selector_key *key) {
+void socks5_block(struct selector_key *key) {
     clientData *data = key->data;
     stm_handler_block(data->stm, key);
 }

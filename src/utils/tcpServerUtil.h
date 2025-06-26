@@ -16,6 +16,7 @@ enum socks5_states {
   REQUEST_WRITE,
   DONE,
   ERROR_CLIENT,
+    FINAL,
 };
 
 
@@ -59,9 +60,9 @@ unsigned handleRequestRead(struct selector_key *key);
 // Handle writing to the client socket
 unsigned handleRequestWrite(struct selector_key *key);
 
-static void socks5_close(struct selector_key *key);
-static void socks5_read(struct selector_key *key);
-static void socks5_write(struct selector_key *key);
-static void socks5_block(struct selector_key *key);
+ void socks5_close(struct selector_key *key);
+void socks5_read(struct selector_key *key);
+void socks5_write(struct selector_key *key);
+void socks5_block(struct selector_key *key);
 
 #endif

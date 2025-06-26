@@ -29,10 +29,8 @@
 
 int main(int argc , char *argv[])
 {
-    int opt = TRUE;
-    int master_socket , addrlen , new_socket ,
-    max_clients = INITIAL_MAX_CLIENTS , activity, i , valread , sd;
-    int max_sd;
+    int master_socket ,
+    max_clients = INITIAL_MAX_CLIENTS , activity;
 
 
     struct selector_init conf = {
