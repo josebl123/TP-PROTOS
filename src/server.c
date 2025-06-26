@@ -23,7 +23,7 @@
 
 #define TRUE   1
 #define FALSE  0
-#define PORT "8888"
+#define PORT "1080"
 #define INITIAL_MAX_CLIENTS 30
 #define MAX_BUFFER_SIZE 1024
 
@@ -33,15 +33,7 @@ int main(int argc , char *argv[])
     int master_socket , addrlen , new_socket ,
     max_clients = INITIAL_MAX_CLIENTS , activity, i , valread , sd;
     int max_sd;
-    struct sockaddr_in address;
 
-    char buffer[MAX_BUFFER_SIZE];  //data buffer of 1K
-
-    //set of socket descriptors
-    fd_set readfds;
-
-    //a message
-    char *message = "ECHO Daemon v1.0 \r\n";
 
     struct selector_init conf = {
         .signal = SIGUSR1,

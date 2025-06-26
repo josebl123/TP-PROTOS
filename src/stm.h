@@ -34,7 +34,7 @@ struct state_machine {
     const struct state_definition *current;
 };
 
-struct selector_key *key;
+extern struct selector_key *key; // TODO: esto lo agregue yo (extern)
 
 /**
  * definición de un estado de la máquina de estados

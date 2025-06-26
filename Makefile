@@ -11,7 +11,8 @@ SERVER_SRCS = $(SRC_DIR)/server.c \
        $(SRC_DIR)/selector.c \
        $(SRC_DIR)/utils/tcpServerUtil.c \
        $(SRC_DIR)/utils/util.c \
-       $(SRC_DIR)/utils/logger.c
+       $(SRC_DIR)/utils/logger.c \
+       $(SRC_DIR)/stm.c \
 
 # Source files for the tests
 TEST_SRCS = $(SRC_DIR)/buffer_test.c \
