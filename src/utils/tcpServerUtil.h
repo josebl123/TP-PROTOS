@@ -4,7 +4,8 @@
 #include <stdio.h>
 #include <sys/socket.h>
 #include "../selector.h"  // Added include for selector_key struct
-#include "stm.h"
+#include "../stm.h"
+#include "../buffer.h"
 
 enum socks5_states {
   HELLO_READ,
@@ -19,7 +20,7 @@ enum socks5_states {
 
 
 typedef struct {
-  char *buffer;
+  buffer * buffer;
   size_t bufferSize;
   size_t bufferOffset;
   int authMethod;
