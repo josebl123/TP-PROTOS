@@ -19,6 +19,12 @@
 #define SOCKS_VERSION 5 // Version for SOCKS protocol
 #define AUTH_METHOD_PASSWORD 2 // Authentication method for password
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
+
+#define CONNECT 1
+#define RSV 0
+
+
+
 static char addrBuffer[MAX_ADDR_BUFFER];
 /*
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
@@ -131,25 +137,104 @@ unsigned handleRequestWrite(struct selector_key *key) {
 unsigned handleRequestRead(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
+
     // Recibir mensaje del cliente
-    ssize_t numBytesRcvd = recv(clntSocket, data->buffer + data->bufferOffset, BUFSIZE - data->bufferOffset, 0);
-    if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
+    log(INFO, "Reading request from client socket %d", clntSocket);
+    size_t writeLimit;
+    uint8_t *readPtr = buffer_write_ptr(data->buffer, &writeLimit);
+    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
+    if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    else if (numBytesRcvd == 0) {
+    } else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         free(data->buffer); // Liberar el buffer
-        selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
-        return DONE;
+        return ERROR_CLIENT; // TODO definir codigos de error
     } else {
-        // Enviar mensaje de vuelta al cliente
-        selector_set_interest_key(key, OP_WRITE);
-        data->bufferSize += numBytesRcvd; // Guardar el tamaño del buffer
-        log(INFO, "Received %zd bytes from client socket %d: %.*s", numBytesRcvd, clntSocket, (int)numBytesRcvd, data->buffer);
-        return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
-    }
+        log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
+        // Procesar la solicitud del cliente
+        char socksVersion = buffer_read(data->buffer);
+        if (socksVersion != SOCKS_VERSION) {
+            log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
+        // Leer el comando de la solicitud
+        char command = buffer_read(data->buffer);
+        if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
+            log(ERROR, "Unsupported command: %d", command);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
 
+        char rsv = buffer_read(data->buffer); // Reservado, debe ser 0x00
+        if (rsv != RSV) {
+            log(ERROR, "Invalid RSV field: %d", rsv);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
+
+        // Leer el tipo de dirección
+        char atyp = buffer_read(data->buffer);
+        if (atyp == IPV4) { // Dirección IPv4
+            size_t readLimit;
+            uint8_t *readPtr = buffer_read_ptr(data->buffer, &readLimit);
+            if (readLimit < 6) { // 4 bytes de IP + 2 bytes de puerto
+                log(ERROR, "Incomplete IPv4 address received");
+                return REQUEST_READ; // TODO definir codigos de error
+            }
+            uint32_t ip = ntohl(*(uint32_t *)data->buffer->read); // Leer la dirección IP
+            log(INFO, "Received IPv4 address: %s", inet_ntoa(*(struct in_addr *)&ip));
+            buffer_read_adv(data->buffer, 4); // Avanzar el puntero de lectura
+            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            log(INFO, "Received port: %d", port);
+            buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+
+            data->destination.addressType = IPV4; // Guardar el tipo de dirección
+            data->destination.address.ipv4 = ip; // Guardar la dirección IPv4
+            data->destination.port = port; // Guardar el puerto
+
+            log(INFO, "Connecting to IPv4 address %s:%d", inet_ntoa(*(struct in_addr *)&ip), port);
+
+            return REQUEST_WRITE;
+        } else if (atyp == DOMAINNAME) { // Nombre de dominio
+            size_t domainLength = buffer_read(data->buffer); // Longitud del nombre de dominio
+            if (data->buffer->write - data->buffer->read < domainLength + 2) { // Longitud del dominio + 2 bytes de puerto
+                log(ERROR, "Incomplete domain name received");
+                return REQUEST_READ; // TODO definir codigos de error
+            }
+            char domainName[domainLength + 1];
+            strncpy(domainName, (char *)data->buffer->read, domainLength);
+            domainName[domainLength] = '\0'; // Asegurar que el nombre de dominio esté terminado en nulo
+            data->buffer->read += domainLength; // Avanzar el puntero de lectura
+            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            data->buffer->read += 2; // Avanzar el puntero de lectura
+            log(INFO, "Connecting to domain name %s:%d", domainName, port);
+        } else if (atyp == IPV6) { // Dirección IPv6
+            size_t readLimit;
+            uint8_t *readPtr = buffer_read_ptr(data->buffer, &readLimit);
+            if (readLimit < 18) { // 16 bytes de IP + 2 bytes de puerto
+                log(ERROR, "Incomplete IPv4 address received");
+                return REQUEST_READ; // TODO definir codigos de error
+            }
+            char ipv6[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, data->buffer->read, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
+            log(INFO, "Received IPv6 address: %s", ipv6);
+            buffer_read_adv(data->buffer, 16); // Avanzar el puntero de lectura
+            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            log(INFO, "Received port: %d", port);
+            buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+
+            data->destination.addressType = IPV6; // Guardar el tipo de dirección
+            inet_pton(AF_INET6, ipv6, &data->destination.address.ipv6); // Guardar la dirección IPv6 TODO check but i think converts fine (string to number)
+            data->destination.port = port; // Guardar el puerto
+
+            log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
+        }
+        else {
+            log(ERROR, "Unsupported address type: %d", atyp);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
+
+    }
 }
 int initializeClientData(clientData **data) {
     *data = malloc(sizeof(clientData));
@@ -367,7 +452,7 @@ unsigned handleAuthRead(struct selector_key *key) {
         int usernameLength ; // Longitud del nombre de usuario
         int passwordLength; // Longitud de la contraseña
         uint8_t socksVersion = buffer_read(data->buffer);
-        if( socksVersion == SUBNEGOTIATION_VERSION && numBytesRcvd >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes
+        if( socksVersion == SUBNEGOTIATION_VERSION && numBytesRcvd >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes TODO magic nums
             usernameLength = buffer_read(data->buffer); // Longitud del nombre de usuario
             log(INFO, "Username length: %d", usernameLength);
         } else {
@@ -414,10 +499,12 @@ unsigned handleAuthWrite(struct selector_key *key) {
 
     // Enviar respuesta de autenticación al cliente
     char response[2] = {SOCKS_VERSION, 1}; // Respuesta de autenticación exitosa
-    if( strncmp(data->authInfo.username, "user", 4) == 0 && strncmp(data->authInfo.password, "pass", 4) == 0) {
+    if( strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "pass") == 0) {
         response[1] = 0; // Autenticación exitosa
     }
     ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+
+    log(INFO, "Sending authentication response to client socket %d with bytes: %zu", clntSocket, numBytesSent);
 
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
@@ -440,9 +527,10 @@ unsigned handleAuthWrite(struct selector_key *key) {
             selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
             return ERROR_CLIENT; // TODO definir codigos de error
             }
-        if (data->bufferSize == numBytesSent) {
+        if (2 == numBytesSent) { // TODO magic number
             data->bufferOffset = 0; // Reiniciar el offset del buffer
             selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir solicitud
+            log(INFO, "Sent authentication response to client socket %d", clntSocket);
             return REQUEST_READ; // Cambiar al estado de lectura de solicitud
         }
         data->bufferOffset += numBytesSent; // Actualizar el offset del buffer

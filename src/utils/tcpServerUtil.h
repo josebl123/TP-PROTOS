@@ -18,6 +18,12 @@ enum socks5_states {
   ERROR_CLIENT,
 };
 
+enum ADDRESS_TYPE {
+  IPV4 = 0x01,        // IPv4 address
+  DOMAINNAME = 0x03,  // Domain name
+  IPV6 = 0x04         // IPv6 address
+};
+
 
 typedef struct {
   buffer * buffer;
@@ -29,6 +35,15 @@ typedef struct {
     char username[256];
     char password[256];
   } authInfo; // Authentication information
+  struct destination_info {
+    int addressType; // Address type (IPv4, IPv6, or domain name)
+    union {
+        uint32_t ipv4; // IPv4 address
+        uint32_t ipv6; // IPv6 address
+        char domainName[256]; // Domain name
+    } address;
+    uint16_t port; // Destination port
+  } destination; // Destination information
 } clientData;
 
 // Create, bind, and listen a new TCP server socket
