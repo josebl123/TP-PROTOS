@@ -188,6 +188,10 @@ unsigned handleRequestWrite(struct selector_key *key) {
         }
          // Log the number of bytes sent
         log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
+
+        selector_set_interest_key(key, OP_READ); // Cambiar el interés a lectura
+        buffer_reset(data->buffer); // Resetear el buffer para la siguiente lectura
+        return REQUEST_READ; // Cambiar al estado de lectura de solicitud
     }
 
 
@@ -240,10 +244,10 @@ unsigned handleRequestRead(struct selector_key *key) {
                 log(ERROR, "Incomplete IPv4 address received");
                 return REQUEST_READ; // TODO definir codigos de error
             }
-            uint32_t ip = ntohl(*(uint32_t *)data->buffer->read); // Leer la dirección IP
+            uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
             log(INFO, "Received IPv4 address: %s", inet_ntoa(*(struct in_addr *)&ip));
             buffer_read_adv(data->buffer, 4); // Avanzar el puntero de lectura
-            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            uint16_t port = ntohs(*(uint16_t *)readPtr); // Leer el puerto
             log(INFO, "Received port: %d", port);
             buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
 
@@ -260,7 +264,7 @@ unsigned handleRequestRead(struct selector_key *key) {
             return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 
         } else if (atyp == DOMAINNAME) { // Nombre de dominio
-            size_t domainLength = buffer_read(data->buffer); // Longitud del nombre de dominio
+            ssize_t domainLength = buffer_read(data->buffer); // Longitud del nombre de dominio
             if (data->buffer->write - data->buffer->read < domainLength + 2) { // Longitud del dominio + 2 bytes de puerto
                 log(ERROR, "Incomplete domain name received");
                 return REQUEST_READ; // TODO definir codigos de error
@@ -294,10 +298,10 @@ unsigned handleRequestRead(struct selector_key *key) {
                 return REQUEST_READ; // TODO definir codigos de error
             }
             char ipv6[INET6_ADDRSTRLEN];
-            inet_ntop(AF_INET6, data->buffer->read, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
+            inet_ntop(AF_INET6, readPtr, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
             log(INFO, "Received IPv6 address: %s", ipv6);
             buffer_read_adv(data->buffer, 16); // Avanzar el puntero de lectura
-            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            uint16_t port = ntohs(*(uint16_t *)readPtr); // Leer el puerto
             log(INFO, "Received port: %d", port);
             buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
 
