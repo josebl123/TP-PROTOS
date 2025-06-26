@@ -50,6 +50,8 @@ int setupTCPServerSocket(const char *service) {
             continue;       // Socket creation failed; try next address
         }
 
+       setsockopt(servSock, SOL_SOCKET, SO_REUSEADDR, &(int){1}, sizeof(int)); // Allow reuse of address
+
         // Bind to ALL the address and set socket to listen
         if ((bind(servSock, addr->ai_addr, addr->ai_addrlen) == 0) && (listen(servSock, MAXPENDING) == 0)) {
             // Print local address of socket
@@ -116,7 +118,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         if (data->bufferSize == numBytesSent) {
             data->bufferOffset = 0; // Reiniciar el offset del buffer
         }
-        data->bufferSize -= numBytesSent; // Actualizar el tamaño del buffer
+        data->bufferOffset += numBytesSent; // Actualizar el tamaño del buffer
         selector_set_interest_key(key, OP_READ);
         return REQUEST_READ; // Cambiar al estado de lectura de solicitud
     }
@@ -178,7 +180,7 @@ int initializeClientData(clientData **data) {
         return -1;
     }
 
-    (*data)->bufferSize = 0;
+    (*data)->bufferSize = BUFSIZE;
     (*data)->bufferOffset = 0;
     (*data)->authMethod = 0xFF; // Error auth method
     (*data)->stm = stm; // Assign the state machine to client data
@@ -256,6 +258,7 @@ unsigned handleHelloRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de saludo del cliente
       int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
+    log(INFO, "hello Read", clntSocket);
     // Recibir mensaje del cliente
     ssize_t numBytesRcvd = recv(clntSocket, data->buffer + data->bufferOffset, BUFSIZE - data->bufferOffset, 0);
     if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
@@ -275,8 +278,8 @@ unsigned handleHelloRead(struct selector_key *key) {
           if(data->buffer[data->bufferOffset + 2 + i] == AUTH_METHOD_PASSWORD){ // si el metodo es no autenticacion
 			data->authMethod = AUTH_METHOD_PASSWORD; // guardo el metodo de autenticacion
             data->bufferOffset = 0;
-            data->bufferSize = 0; // Reiniciar el tamaño del buffer
             selector_set_interest_key(key, OP_WRITE); // cambio el interes a escritura para enviar la respuesta
+            log(INFO, "Selected authentication method: Password");
             return HELLO_WRITE; // Cambiar al estado de escritura de saludo
           }
         }
@@ -292,6 +295,7 @@ unsigned handleHelloRead(struct selector_key *key) {
 unsigned handleHelloWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
+
 
     // Enviar respuesta de saludo al cliente
     char response[2] = {SOCKS_VERSION, data->authMethod}; // Respuesta de saludo con autenticación no requerida
@@ -312,13 +316,14 @@ unsigned handleHelloWrite(struct selector_key *key) {
         return DONE;
     } else {
         // Mensaje enviado correctamente, desregistrar el interés de escritura
-        if (data->bufferSize == numBytesSent) {
+        if ( 2 == numBytesSent) {
             data->bufferOffset = 0; // Reiniciar el offset del buffer
-            data->bufferSize = 0; // Reiniciar el tamaño del buffer
             selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir autenticación
-            return AUTH_READ; // Cambiar al estado de lectura de autenticación
+            log(INFO, "Sent hello response to client socket %d", clntSocket);
+            return AUTH_READ;
         }
-        data->bufferOffset += numBytesSent; // Actualizar el offset del buffer
+        data->bufferOffset += numBytesSent; //TODO: ESTO NO TIENE MUCHO SENTIDO
+        log(INFO, "Sent %zd bytes of hello response to client socket %d", numBytesSent, clntSocket);
         return HELLO_WRITE; // Mantener el estado de escritura de saludo
     }
 }
@@ -326,23 +331,25 @@ unsigned handleAuthRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de autenticación del cliente
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = (clientData *) key->data;
+    log(INFO, "reading auth info", clntSocket);
 
-    ssize_t numBytesRcvd = recv(clntSocket, data->buffer + data->bufferOffset, BUFSIZE - data->bufferOffset, 0);
+    ssize_t numBytesRcvd = recv(clntSocket, data->buffer + data->bufferOffset, data->bufferSize - data->bufferOffset, 0);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
     } else if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
+        log(INFO, "Client socket %d closed connection ACA", clntSocket);
         free(data->buffer); // Liberar el buffer
         selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
         return DONE;
     } else {
-        data->bufferSize += numBytesRcvd; // Guardar el tamaño del buffer
+        data->bufferOffset += numBytesRcvd; // Guardar el tamaño del buffer
         int usernameLength ; // Longitud del nombre de usuario
         int passwordLength; // Longitud de la contraseña
-        if( data->buffer[data->bufferOffset] == SOCKS_VERSION && data->bufferSize >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes
+        if( data->buffer[data->bufferOffset] == SOCKS_VERSION && numBytesRcvd >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes
             data->bufferOffset += 2; // Avanzo el offset del buffer
             usernameLength = data->buffer[data->bufferOffset]; // Longitud del nombre de usuario
+            log(INFO, "Username length: %d", usernameLength);
         } else {
             log(ERROR, "Unsupported authentication method or incomplete data");
             free(data->buffer); // Liberar el buffer
@@ -354,15 +361,16 @@ unsigned handleAuthRead(struct selector_key *key) {
         } else {
           strncpy(data->buffer + data->bufferOffset, data->authInfo.username, usernameLength); // Copio el nombre de usuario al buffer
             data->bufferOffset += usernameLength; // Avanzo el offset del buffer
+            log(INFO, "Received username: %.*s", usernameLength, data->buffer + data->bufferOffset - usernameLength);
           }
 
-        if(data->bufferSize < data->bufferOffset + 1) { // Si no tengo suficientes bytes para la contraseña
+        if(numBytesRcvd < data->bufferOffset + 1) { // Si no tengo suficientes bytes para la contraseña
             log(ERROR, "Incomplete authentication data received");
             return AUTH_READ; // TODO definir codigos de error
         } else {
                   passwordLength = data->buffer[++data->bufferOffset]; // Longitud de la contraseña
          }
-        if(data->bufferSize < data->bufferOffset + passwordLength) { // Si no tengo suficientes bytes para la contraseña
+        if(numBytesRcvd < data->bufferOffset + passwordLength) { // Si no tengo suficientes bytes para la contraseña
             log(ERROR, "Incomplete authentication data received");
             return AUTH_READ; // TODO definir codigos de error
         } else {
@@ -413,7 +421,6 @@ unsigned handleAuthWrite(struct selector_key *key) {
             }
         if (data->bufferSize == numBytesSent) {
             data->bufferOffset = 0; // Reiniciar el offset del buffer
-            data->bufferSize = 0; // Reiniciar el tamaño del buffer
             selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir solicitud
             return REQUEST_READ; // Cambiar al estado de lectura de solicitud
         }
