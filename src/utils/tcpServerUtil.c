@@ -150,7 +150,7 @@ unsigned handleRequestRead(struct selector_key *key) {
     } else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         free(data->buffer); // Liberar el buffer
-        return ERROR_CLIENT; // TODO definir codigos de error
+        return DONE; // TODO definir codigos de error
     } else {
         log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
         // Procesar la solicitud del cliente
@@ -192,6 +192,8 @@ unsigned handleRequestRead(struct selector_key *key) {
             data->destination.address.ipv4 = ip; // Guardar la dirección IPv4
             data->destination.port = port; // Guardar el puerto
 
+            return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+
             log(INFO, "Connecting to IPv4 address %s:%d", inet_ntoa(*(struct in_addr *)&ip), port);
 
             return REQUEST_WRITE;
@@ -204,9 +206,19 @@ unsigned handleRequestRead(struct selector_key *key) {
             char domainName[domainLength + 1];
             strncpy(domainName, (char *)data->buffer->read, domainLength);
             domainName[domainLength] = '\0'; // Asegurar que el nombre de dominio esté terminado en nulo
-            data->buffer->read += domainLength; // Avanzar el puntero de lectura
+            buffer_read_adv(data->buffer, domainLength);
+            log(INFO, "Received domain name: %s", domainName);
             uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
-            data->buffer->read += 2; // Avanzar el puntero de lectura
+            log(INFO, "Received port: %d", port);
+            buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+
+            data->destination.addressType = DOMAINNAME; // Guardar el tipo de dirección
+            strncpy(data->destination.address.domainName, domainName, sizeof(data->destination.address.domainName) - 1); // Guardar el nombre de dominio
+            data->destination.address.domainName[sizeof(data->destination.address.domainName) - 1] = '\0'; // Asegurar que esté terminado en nulo
+            data->destination.port = port; // Guardar el puerto
+
+            return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+
             log(INFO, "Connecting to domain name %s:%d", domainName, port);
         } else if (atyp == IPV6) { // Dirección IPv6
             size_t readLimit;
@@ -226,6 +238,8 @@ unsigned handleRequestRead(struct selector_key *key) {
             data->destination.addressType = IPV6; // Guardar el tipo de dirección
             inet_pton(AF_INET6, ipv6, &data->destination.address.ipv6); // Guardar la dirección IPv6 TODO check but i think converts fine (string to number)
             data->destination.port = port; // Guardar el puerto
+
+            return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 
             log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
         }
