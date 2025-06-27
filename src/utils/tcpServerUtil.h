@@ -46,6 +46,14 @@ typedef struct {
   } destination; // Destination information
 } clientData;
 
+typedef struct {
+    int fd; // File descriptor for the remote socket
+    struct sockaddr_storage remoteAddr; // Remote address information
+    clientData *client; // Pointer to the client data structure
+    struct state_machine *stm; // Pointer to the state machine
+    buffer *buffer; // Buffer for reading/writing data
+} remoteData;
+
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *service);
 
