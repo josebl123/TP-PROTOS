@@ -7,26 +7,27 @@ OBJ_DIR = obj
 BIN_DIR = bin
 
 # Source files for the main server
-SERVER_SRCS = $(SRC_DIR)/server.c \
+SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/selector.c \
-       $(SRC_DIR)/utils/tcpServerUtil.c \
+       $(SRC_DIR)/server/tcpServerUtil.c \
+       $(SRC_DIR)/server/socksAuth.c \
        $(SRC_DIR)/utils/util.c \
        $(SRC_DIR)/utils/logger.c \
        $(SRC_DIR)/stm.c \
        $(SRC_DIR)/buffer.c \
 
 # Source files for the tests
-TEST_SRCS = $(SRC_DIR)/buffer_test.c \
+TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \
        $(SRC_DIR)/buffer.c \
-       $(SRC_DIR)/netutils_test.c \
-       $(SRC_DIR)/netutils.c \
-       $(SRC_DIR)/parser_test.c \
+       $(SRC_DIR)/test/netutils_test.c \
+       $(SRC_DIR)/utils/netutils.c \
+       $(SRC_DIR)/test/parser_test.c \
        $(SRC_DIR)/parser.c \
-       $(SRC_DIR)/parser_utils_test.c \
+       $(SRC_DIR)/test/parser_utils_test.c \
        $(SRC_DIR)/parser_utils.c \
-       $(SRC_DIR)/selector_test.c \
+       $(SRC_DIR)/test/selector_test.c \
        $(SRC_DIR)/selector.c \
-       $(SRC_DIR)/stm_test.c \
+       $(SRC_DIR)/test/stm_test.c \
        $(SRC_DIR)/stm.c
 
 # Object files
@@ -40,7 +41,7 @@ INCLUDES = -I$(SRC_DIR)
 CHECK_FLAGS = $(shell pkg-config --cflags --libs check)
 
 # Ensure the directories exist
-DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils
+DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/test
 
 .PHONY: all clean test
 

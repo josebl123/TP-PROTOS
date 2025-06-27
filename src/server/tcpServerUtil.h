@@ -1,11 +1,14 @@
 #ifndef TCPSERVERUTIL_H_
 #define TCPSERVERUTIL_H_
 
-#include <stdio.h>
-#include <sys/socket.h>
 #include "../selector.h"  // Added include for selector_key struct
 #include "../stm.h"
 #include "../buffer.h"
+
+#define SOCKS_VERSION 5 // Version for SOCKS protocol
+#define AUTH_METHOD_PASSWORD 2 // Authentication method for password
+#define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
+#define NO_ACCEPTABLE_METHODS 0xFF // No acceptable methods
 
 enum socks5_states {
   HELLO_READ,
@@ -30,14 +33,14 @@ typedef struct {
   buffer * buffer;
   size_t bufferSize;
   size_t bufferOffset;
-  int authMethod;
+  uint8_t authMethod;
   struct state_machine *stm; // Pointer to the state machine
   struct auth_info {
     char username[256];
     char password[256];
   } authInfo; // Authentication information
   struct destination_info {
-    int addressType; // Address type (IPv4, IPv6, or domain name)
+    uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
     union {
         uint32_t ipv4; // IPv4 address
         uint32_t ipv6; // IPv6 address
@@ -54,7 +57,7 @@ int setupTCPServerSocket(const char *service);
 int acceptTCPConnection(int servSock);
 
 // Handle read events on the master socket (new connections)
-void handleMasterRead(struct selector_key *key);
+void handleMasterRead( struct selector_key *key);
 
 void handleClientRead(struct selector_key *key);
 
@@ -62,14 +65,6 @@ void handleTCPEchoClientClose(struct selector_key *key);
 
 
 
-// Handle reading the initial hello message from the client
-unsigned handleHelloRead(struct selector_key *key);
-// Handle writing the hello response to the client
-unsigned handleHelloWrite(struct selector_key *key);
-// Handle reading the authentication message from the client
-unsigned handleAuthRead(struct selector_key *key);
-// Handle writing the authentication response to the client
-unsigned handleAuthWrite(struct selector_key *key);
 // Handle reading the request from the client
 unsigned handleRequestRead(struct selector_key *key);
 // Handle writing to the client socket
