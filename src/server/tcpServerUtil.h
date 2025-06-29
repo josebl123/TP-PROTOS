@@ -21,7 +21,6 @@ enum socks5_states {
   REQUEST_WRITE,
   DONE,
   ERROR_CLIENT,
-    FINAL,
 };
 
 enum ADDRESS_TYPE {
@@ -35,8 +34,8 @@ typedef struct {
   buffer * buffer;
   size_t bufferSize;
   size_t bufferOffset;
-  uint8_t authMethod;
   struct state_machine *stm; // Pointer to the state machine
+  uint8_t authMethod;
   struct auth_info {
     char username[256];
     char password[256];

@@ -26,9 +26,7 @@
 
 int main()
 {
-    int activity;
     // int max_clients = INITIAL_MAX_CLIENTS;
-
 
     const struct selector_init conf = {
         .signal = SIGUSR1,
@@ -40,14 +38,14 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-     fd_selector selector = selector_new(INITIAL_MAX_CLIENTS);
+    fd_selector selector = selector_new(INITIAL_MAX_CLIENTS);
 
     if (selector == NULL) {
         perror("Failed to create selector");
         exit(EXIT_FAILURE);
     }
 
-    int master_socket = setupTCPServerSocket(PORT);
+    const int master_socket = setupTCPServerSocket(PORT);
     if (master_socket < 0) {
         perror("Failed to setup TCP server socket");
         exit(EXIT_FAILURE);
@@ -66,9 +64,9 @@ int main()
     while(TRUE)
     {
         //wait for an activity on one of the sockets , timeout is NULL , so wait indefinitely
-        activity = selector_select( selector);
+        const int activity = selector_select(selector);
 
-        if ((activity < 0) && (errno!=EINTR))
+        if (activity < 0 && errno!=EINTR)
         {
             printf("select error");
         }

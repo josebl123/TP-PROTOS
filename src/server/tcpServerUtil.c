@@ -235,7 +235,7 @@ int acceptTCPConnection(int servSock) {
 
 unsigned handleRequestWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
-    clientData *data = (clientData *) key->data;
+    clientData *data = key->data;
     // Enviar respuesta al cliente
     log(INFO, "Writing response to client socket %d", clntSocket);
 
@@ -416,12 +416,13 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
         log(ERROR, "Incomplete IPv4 address received");
         return REQUEST_READ; // TODO definir codigos de error
     }
-    uint32_t ip = ntohl(*(uint32_t *)data->buffer->read); // Leer la dirección IP
+    uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
     log(INFO, "Received IPv4 address: %s", inet_ntoa(*(struct in_addr *)&ip));
-    buffer_read_adv(data->buffer, 4); // Avanzar el puntero de lectura
-    const uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+    buffer_read_adv(data->buffer, 4);
+    readPtr = buffer_read_ptr(data->buffer, &readLimit);
+    const uint16_t port = ntohs(*(uint16_t *)readPtr);
     log(INFO, "Received port: %d", port);
-    buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+    buffer_read_adv(data->buffer, 2);
 
     data->destination.addressType = IPV4; // Guardar el tipo de dirección
     data->destination.address.ipv4 = ip; // Guardar la dirección IPv4
@@ -435,6 +436,7 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
 
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
+
 unsigned handleIPv6RequestRead(struct selector_key *key) {
     clientData *data = key->data;
     size_t readLimit;
@@ -477,8 +479,8 @@ unsigned handleRequestRead(struct selector_key *key) {
     // Recibir mensaje del cliente
     log(INFO, "Reading request from client socket %d", clntSocket);
     size_t writeLimit;
-    uint8_t *readPtr = buffer_write_ptr(data->buffer, &writeLimit);
-    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    uint8_t *writePtr = buffer_write_ptr(data->buffer, &writeLimit);
+    const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
@@ -486,7 +488,6 @@ unsigned handleRequestRead(struct selector_key *key) {
     }
     if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        free(data->buffer); // Liberar el buffer
         return DONE; // TODO definir codigos de error
     }
     log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
@@ -568,7 +569,7 @@ void handleMasterRead(struct selector_key *key) {
     socklen_t addrlen = sizeof(address);
 
     // aceptamos
-    int new_socket = acceptTCPConnection(key->fd);
+    const int new_socket = acceptTCPConnection(key->fd);
     if (new_socket < 0) {
         perror("accept");
         return;
@@ -598,7 +599,7 @@ void handleMasterRead(struct selector_key *key) {
         return; // Error initializing client data
     }
 
-    // Registrar con interés inicial en escritura para enviar mensaje de bienvenida
+    // Registrar con interés inicial
     if (SELECTOR_SUCCESS != selector_register(key->s, new_socket, &client_handler, OP_READ, data)) {
         perror("Failed to register client socket");
         free(data->buffer);
