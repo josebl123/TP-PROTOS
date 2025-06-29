@@ -1,6 +1,8 @@
 #ifndef TCPSERVERUTIL_H_
 #define TCPSERVERUTIL_H_
 
+#include <sys/socket.h>
+#include <netinet/in.h>    // For struct in6_addr and struct sockaddr_in
 #include "../selector.h"  // Added include for selector_key struct
 #include "../stm.h"
 #include "../buffer.h"
@@ -39,16 +41,25 @@ typedef struct {
     char username[256];
     char password[256];
   } authInfo; // Authentication information
+
   struct destination_info {
     uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
     union {
-        uint32_t ipv4; // IPv4 address
-        uint32_t ipv6; // IPv6 address
+        uint32_t ipv4; // IPv4 address in network byte order
+        struct in6_addr ipv6; // IPv6 address
         char domainName[256]; // Domain name
     } address;
     uint16_t port; // Destination port
   } destination; // Destination information
 } clientData;
+
+typedef struct {
+    int fd; // File descriptor for the remote socket
+    struct sockaddr_storage remoteAddr; // Remote address information
+    clientData *client; // Pointer to the client data structure
+    struct state_machine *stm; // Pointer to the state machine
+    buffer *buffer; // Buffer for reading/writing data
+} remoteData;
 
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *service);

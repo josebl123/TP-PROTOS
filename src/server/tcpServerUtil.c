@@ -137,62 +137,140 @@ unsigned handleRequestWrite(struct selector_key *key) {
     // Enviar respuesta al cliente
     log(INFO, "Writing response to client socket %d", clntSocket);
 
-    uint8_t response[30]; // Buffer para la respuesta
+
+    char response[30] = {0}; // Buffer para la respuesta
+
+
+    //create remote socket
+    int remoteSocket = setupTCPRemoteSocket(&data->destination);
+    if (remoteSocket < 0) {
+        log(ERROR, "Failed to create remote socket for client %d", clntSocket);
+        return ERROR_CLIENT; // TODO definir codigos de error
+    }
+    log(INFO, "Remote socket %d created for client %d", remoteSocket, clntSocket);
+    // Register the remote socket with the selector
+    buffer *remoteBuffer = malloc(sizeof(buffer)); // Create a buffer for the remote socket
+    if (remoteBuffer == NULL) {
+        log(ERROR, "Failed to allocate memory for remote buffer");
+        close(remoteSocket);
+        return ERROR_CLIENT; // TODO definir codigos de error
+    }
+    char * remoteBufferData = malloc(BUFSIZE); // Allocate memory for the buffer data
+    if (remoteBufferData == NULL) {
+        log(ERROR, "Failed to allocate memory for remote buffer data");
+        free(remoteBuffer);
+        close(remoteSocket);
+        return ERROR_CLIENT; // TODO definir codigos de error
+    }
+    buffer_init(remoteBuffer, BUFSIZE, remoteBufferData); // Initialize the buffer with a size
+
+
+    struct sockaddr_storage remoteAddr;
+    socklen_t remoteAddrLen = sizeof(remoteAddr);
+    if (getsockname(remoteSocket, (struct sockaddr *)&remoteAddr, &remoteAddrLen) < 0) {
+        log(ERROR, "Failed to get remote socket address: %s", strerror(errno));
+        free(remoteBufferData); // Free the buffer data
+        free(remoteBuffer); // Free the buffer
+        close(remoteSocket); // Close the remote socket
+        return ERROR_CLIENT; // TODO definir codigos de error
+    }
+    remoteData *remoteData = malloc(sizeof(remoteData)); // Create a remoteData structure
+    if (remoteData == NULL) {
+        log(ERROR, "Failed to allocate memory for remoteData");
+        free(remoteBufferData);
+        free(remoteBuffer);
+        close(remoteSocket);
+        return ERROR_CLIENT; // TODO definir codigos de error
+    }
+    remoteData->fd = remoteSocket; // Set the remote socket file descriptor
+    remoteData->remoteAddr = remoteAddr; // Set the remote address
+    remoteData->client = data; // Set the client data
+    remoteData->stm = data->stm; // Set the state machine pointer
+    remoteData->buffer = remoteBuffer; // Set the buffer for the remote socket
+
+    struct selector_key remoteKey = {
+        .s = key->s,
+        .fd = remoteSocket,
+        .data = remoteData // Reuse the same clientData structure
+    };
+
+    fd_handler *remote_handler = malloc(sizeof(fd_handler)); // Allocate memory for the remote handler
+
+
+    remote_handler->handle_read = socks5_read; // Handle read events on the remote socket
+    remote_handler->handle_write = socks5_write; // Handle write events on the remote socket
+    remote_handler->handle_close = socks5_close; // Handle close events on the remote socket
+    remote_handler->handle_block = socks5_block; // No blocking operations for now
+
+
+    // Register the remote socket with the selector
+    if (selector_register(key->s, remoteSocket, remote_handler, OP_READ, remoteData) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
+        free(remoteData->buffer->data); // Free the buffer data
+        free(remoteData->buffer); // Free the buffer
+        free(remoteData); // Free the remoteData structure
+        close(remoteSocket); // Close the remote socket
+        return ERROR_CLIENT; // TODO definir codigos de error
+    }
+    log(INFO, "Remote socket %d registered with selector for client %d", remoteSocket, clntSocket);
+
+    // Prepare the response to send to the client
     response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
     response[1] = 0x00; // Respuesta OK (no error)
     response[2] = RSV; // Reservado, debe ser 0x00
-    response[3] = data->destination.addressType; // Tipo de dirección (IPv4, IPv6 o dominio)
-    if (data->destination.addressType == IPV4) {
-        // Dirección IPv4
-        struct in_addr ipv4Addr;
-        ipv4Addr.s_addr = htonl(data->destination.address.ipv4);
-        memcpy(response + 4, &ipv4Addr, sizeof(ipv4Addr)); // Copiar la dirección IPv4
-        log(INFO, "Connecting to IPv4 address: %s", inet_ntoa(ipv4Addr));
-        uint16_t port = htons(data->destination.port); // Convertir el puerto a big-endian
-        memcpy(response + 8, &port, sizeof(port)); // Copiar el puerto
-        log(INFO, "Connecting to port: %d", data->destination.port);
-    } else if (data->destination.addressType == DOMAINNAME) {
-        // Nombre de dominio
-        size_t domainLength = strlen(data->destination.address.domainName);
-        response[4] = (char) domainLength; // Longitud del nombre de dominio
-        memcpy(response + 5, data->destination.address.domainName, domainLength); // Copiar el nombre de dominio
-        log(INFO, "Connecting to domain name: %s", data->destination.address.domainName);
-        uint16_t port = htons(data->destination.port); // Convertir el puerto a big-endian
-        memcpy(response + 5 + domainLength, &port, sizeof(port)); // Copiar el puerto
-        log(INFO, "Connecting to port: %d", data->destination.port);
-    } else if (data->destination.addressType == IPV6) {
-        // Dirección IPv6
-        struct in6_addr ipv6Addr;
-        memcpy(&ipv6Addr, &data->destination.address.ipv6, sizeof(ipv6Addr)); // Copiar la dirección IPv6
-        memcpy(response + 4, &ipv6Addr, sizeof(ipv6Addr)); // Copiar la dirección IPv6
-        log(INFO, "Connecting to IPv6 address: %s", inet_ntop(AF_INET6, &ipv6Addr, addrBuffer, sizeof(addrBuffer)));
-        uint16_t port = htons(data->destination.port); // Convertir el puerto a big-endian
-        memcpy(response + 20, &port, sizeof(port)); // Copiar el puerto
-        log(INFO, "Connecting to port: %d", data->destination.port);
+
+    // Get the local address info for the remote socket
+    struct sockaddr_storage localAddr;
+    socklen_t localAddrLen = sizeof(localAddr);
+    if (getsockname(remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
+        log(ERROR, "Failed to get local socket address: %s", strerror(errno));
+        close(remoteSocket);
+        return ERROR_CLIENT;
+    }
+
+    // Fill the response with the bound address and port that the client should use
+    if (localAddr.ss_family == AF_INET) {
+        // IPv4 address
+        struct sockaddr_in *addr = (struct sockaddr_in *)&localAddr;
+        response[3] = IPV4; // Address type is IPv4
+        memcpy(response + 4, &addr->sin_addr, sizeof(addr->sin_addr)); // Copy the bound IPv4 address
+        memcpy(response + 8, &addr->sin_port, sizeof(addr->sin_port)); // Copy the bound port (already in network byte order)
+
+        char addrStr[INET_ADDRSTRLEN];
+        inet_ntop(AF_INET, &(addr->sin_addr), addrStr, sizeof(addrStr));
+        log(INFO, "Bound to local IPv4 address: %s:%d", addrStr, ntohs(addr->sin_port));
+    } else if (localAddr.ss_family == AF_INET6) {
+        // IPv6 address
+        struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&localAddr;
+        response[3] = IPV6; // Address type is IPv6
+        memcpy(response + 4, &addr->sin6_addr, sizeof(addr->sin6_addr)); // Copy the bound IPv6 address
+        memcpy(response + 20, &addr->sin6_port, sizeof(addr->sin6_port)); // Copy the bound port (already in network byte order)
+
+        char addrStr[INET6_ADDRSTRLEN];
+        inet_ntop(AF_INET6, &(addr->sin6_addr), addrStr, sizeof(addrStr));
+        log(INFO, "Bound to local IPv6 address: [%s]:%d", addrStr, ntohs(addr->sin6_port));
     } else {
-        log(ERROR, "Unsupported address type: %d", data->destination.addressType);
-        return ERROR_CLIENT; // TODO definir codigos de error
+        log(ERROR, "Unsupported address family: %d", localAddr.ss_family);
+        close(remoteSocket);
+        return ERROR_CLIENT;
     }
     //send the response to the client
     ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    if (numBytesSent == 0) {
+    } else if (numBytesSent == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
+        free(data->buffer); // Liberar el buffer
         return DONE; // TODO definir codigos de error
+    } else {
+        if (numBytesSent < sizeof(response)) {
+            log(INFO, "Partial send: sent %zd bytes, expected %zu bytes", numBytesSent, sizeof(response));
+            return REQUEST_WRITE;
+        }
+         // Log the number of bytes sent
+        log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
     }
-    if ((size_t)numBytesSent < sizeof(response)) {
-        log(INFO, "Partial send: sent %zd bytes, expected %zu bytes", numBytesSent, sizeof(response));
-        return REQUEST_WRITE;
-    }
-    // Log the number of bytes sent
-    log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
-
-    selector_set_interest_key(key, OP_READ); // Cambiar el interés a lectura
-    buffer_reset(data->buffer); // Resetear el buffer para la siguiente lectura
-    return REQUEST_READ; //TODO: ESTA MALLLL FIXME Cambiar al estado de lectura de solicitud
 
 
 }
@@ -206,124 +284,218 @@ unsigned handleRequestRead(struct selector_key *key) {
     log(INFO, "Reading request from client socket %d", clntSocket);
     size_t writeLimit;
     uint8_t *readPtr = buffer_write_ptr(data->buffer, &writeLimit);
-    const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    if (numBytesRcvd == 0) {
+    } else if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        return DONE;
-    }
-    log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
-    // Procesar la solicitud del cliente
-    const uint8_t socksVersion = buffer_read(data->buffer);
-    if (socksVersion != SOCKS_VERSION) {
-        log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    // Leer el comando de la solicitud
-    const uint8_t command = buffer_read(data->buffer);
-    if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
-        log(ERROR, "Unsupported command: %d", command);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
+        free(data->buffer); // Liberar el buffer
+        return DONE; // TODO definir codigos de error
+    } else {
+        log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
+        // Procesar la solicitud del cliente
+        char socksVersion = buffer_read(data->buffer);
+        if (socksVersion != SOCKS_VERSION) {
+            log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
+        // Leer el comando de la solicitud
+        char command = buffer_read(data->buffer);
+        if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
+            log(ERROR, "Unsupported command: %d", command);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
 
-    const uint8_t rsv = buffer_read(data->buffer); // Reservado, debe ser 0x00
-    if (rsv != RSV) {
-        log(ERROR, "Invalid RSV field: %d", rsv);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
+        char rsv = buffer_read(data->buffer); // Reservado, debe ser 0x00
+        if (rsv != RSV) {
+            log(ERROR, "Invalid RSV field: %d", rsv);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
 
         // Leer el tipo de dirección
-    const uint8_t atyp = buffer_read(data->buffer);
-    if (atyp == IPV4) { // Dirección IPv4
-        size_t readLimit;
-        readPtr = buffer_read_ptr(data->buffer, &readLimit);
-        if (readLimit < 6) { // 4 bytes de IP + 2 bytes de puerto
-            log(ERROR, "Incomplete IPv4 address received");
-            return REQUEST_READ; // TODO definir codigos de error
+        char atyp = buffer_read(data->buffer);
+        if (atyp == IPV4) { // Dirección IPv4
+            size_t readLimit;
+            uint8_t *readPtr = buffer_read_ptr(data->buffer, &readLimit);
+            if (readLimit < 6) { // 4 bytes de IP + 2 bytes de puerto
+                log(ERROR, "Incomplete IPv4 address received");
+                return REQUEST_READ; // TODO definir codigos de error
+            }
+            uint32_t ip = ntohl(*(uint32_t *)data->buffer->read); // Leer la dirección IP
+            log(INFO, "Received IPv4 address: %s", inet_ntoa(*(struct in_addr *)&ip));
+            buffer_read_adv(data->buffer, 4); // Avanzar el puntero de lectura
+            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            log(INFO, "Received port: %d", port);
+            buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+
+            data->destination.addressType = IPV4; // Guardar el tipo de dirección
+            data->destination.address.ipv4 = ip; // Guardar la dirección IPv4
+            data->destination.port = port; // Guardar el puerto
+
+            log(INFO, "Connecting to IPv4 address %s:%d", inet_ntoa(*(struct in_addr *)&ip), port);
+
+            selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
+
+            buffer_reset(data->buffer); // Resetear el buffer para la siguiente lectura
+
+            return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+
+        } else if (atyp == DOMAINNAME) { // Nombre de dominio
+            size_t domainLength = buffer_read(data->buffer); // Longitud del nombre de dominio
+            if (data->buffer->write - data->buffer->read < domainLength + 2) { // Longitud del dominio + 2 bytes de puerto
+                log(ERROR, "Incomplete domain name received");
+                return REQUEST_READ; // TODO definir codigos de error
+            }
+            char domainName[domainLength + 1];
+            strncpy(domainName, (char *)data->buffer->read, domainLength);
+            domainName[domainLength] = '\0'; // Asegurar que el nombre de dominio esté terminado en nulo
+            buffer_read_adv(data->buffer, domainLength);
+            log(INFO, "Received domain name: %s", domainName);
+            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            log(INFO, "Received port: %d", port);
+            buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+
+            data->destination.addressType = DOMAINNAME; // Guardar el tipo de dirección
+            strncpy(data->destination.address.domainName, domainName, sizeof(data->destination.address.domainName) - 1); // Guardar el nombre de dominio
+            data->destination.address.domainName[sizeof(data->destination.address.domainName) - 1] = '\0'; // Asegurar que esté terminado en nulo
+            data->destination.port = port; // Guardar el puerto
+
+            log(INFO, "Connecting to domain name %s:%d", domainName, port);
+
+            selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
+
+            buffer_reset(data->buffer); // Resetear el buffer para la siguiente lectura
+
+            return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+        } else if (atyp == IPV6) { // Dirección IPv6
+            size_t readLimit;
+            uint8_t *readPtr = buffer_read_ptr(data->buffer, &readLimit);
+            if (readLimit < 18) { // 16 bytes de IP + 2 bytes de puerto
+                log(ERROR, "Incomplete IPv4 address received");
+                return REQUEST_READ; // TODO definir codigos de error
+            }
+            char ipv6[INET6_ADDRSTRLEN];
+            inet_ntop(AF_INET6, data->buffer->read, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
+            log(INFO, "Received IPv6 address: %s", ipv6);
+            buffer_read_adv(data->buffer, 16); // Avanzar el puntero de lectura
+            uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
+            log(INFO, "Received port: %d", port);
+            buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
+
+            data->destination.addressType = IPV6; // Guardar el tipo de dirección
+            struct in6_addr ipv6Addr; // Estructura para la dirección IPv6
+            memset(&ipv6Addr, 0, sizeof(ipv6Addr)); // Inicializar la estructura
+            // Convertir la dirección IPv6 de texto a binario
+            if (inet_pton(AF_INET6, ipv6, &ipv6Addr) != 1) {
+                log(ERROR, "Invalid IPv6 address format: %s", ipv6);
+                return ERROR_CLIENT; // TODO definir codigos de error
+            }
+            data->destination.address.ipv6 = ipv6Addr; // Guardar la dirección IPv6
+            data->destination.port = port; // Guardar el puerto
+
+            log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
+
+            selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
+
+            buffer_reset(data->buffer); // Resetear el buffer para la siguiente lectura
+
+            return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+
         }
-        uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
-        log(INFO, "Received IPv4 address: %s", inet_ntoa(*(struct in_addr *)&ip));
-        buffer_read_adv(data->buffer, 4); // Avanzar el puntero de lectura
-        const uint16_t port = ntohs(*(uint16_t *)readPtr); // Leer el puerto
-        log(INFO, "Received port: %d", port);
-        buffer_read_adv(data->buffer, 2); // Avanzar el puntero de lectura
-
-        data->destination.addressType = IPV4; // Guardar el tipo de dirección
-        data->destination.address.ipv4 = ip; // Guardar la dirección IPv4
-        data->destination.port = port; // Guardar el puerto
-
-        log(INFO, "Connecting to IPv4 address %s:%d", inet_ntoa(*(struct in_addr *)&ip), port);
-
-        selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
-
-        buffer_reset(data->buffer); // Resetear el buffer para la siguiente lectura
-
-        return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+        else {
+            log(ERROR, "Unsupported address type: %d", atyp);
+            return ERROR_CLIENT; // TODO definir codigos de error
+        }
 
     }
-    if (atyp == DOMAINNAME) { // Nombre de dominio
-        const ssize_t domainLength = buffer_read(data->buffer); // Longitud del nombre de dominio
-        if (data->buffer->write - data->buffer->read < domainLength + 2) { // Longitud del dominio + 2 bytes de puerto
-            log(ERROR, "Incomplete domain name received");
-            return REQUEST_READ; // TODO definir codigos de error
-        }
-        char domainName[domainLength + 1];
-        strncpy(domainName, (char *)data->buffer->read, domainLength);
-        domainName[domainLength] = '\0';
-        buffer_read_adv(data->buffer, domainLength);
-        log(INFO, "Received domain name: %s", domainName);
-        const uint16_t port = ntohs(*(uint16_t *)data->buffer->read); // Leer el puerto
-        log(INFO, "Received port: %d", port);
-        buffer_read_adv(data->buffer, 2);
-
-        data->destination.addressType = DOMAINNAME; // Guardar el tipo de dirección
-        strncpy(data->destination.address.domainName, domainName, sizeof(data->destination.address.domainName) - 1); // Guardar el nombre de dominio
-        data->destination.address.domainName[sizeof(data->destination.address.domainName) - 1] = '\0'; // Asegurar que esté terminado en nulo
-        data->destination.port = port; // Guardar el puerto
-
-        log(INFO, "Connecting to domain name %s:%d", domainName, port);
-
-        selector_set_interest_key(key, OP_WRITE);
-
-        buffer_reset(data->buffer);
-
-        return REQUEST_WRITE;
-    }
-    if (atyp == IPV6) {
-        size_t readLimit;
-        readPtr = buffer_read_ptr(data->buffer, &readLimit);
-        if (readLimit < 18) { // 16 bytes de IP + 2 bytes de puerto
-            log(ERROR, "Incomplete IPv4 address received");
-            return REQUEST_READ; // TODO definir codigos de error
-        }
-        char ipv6[INET6_ADDRSTRLEN];
-        inet_ntop(AF_INET6, readPtr, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
-        log(INFO, "Received IPv6 address: %s", ipv6);
-        buffer_read_adv(data->buffer, 16); // Avanzar el puntero de lectura
-        const uint16_t port = ntohs(*(uint16_t *)readPtr);
-        log(INFO, "Received port: %d", port);
-        buffer_read_adv(data->buffer, 2);
-
-        data->destination.addressType = IPV6; // Guardar el tipo de dirección
-        inet_pton(AF_INET6, ipv6, &data->destination.address.ipv6); // Guardar la dirección IPv6 TODO check but i think converts fine (string to number)
-        data->destination.port = port; // Guardar el puerto
-
-        log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
-
-        selector_set_interest_key(key, OP_WRITE);
-
-        buffer_reset(data->buffer);
-        return REQUEST_WRITE;
-
-    }
-    log(ERROR, "Unsupported address type: %d", atyp);
-    return ERROR_CLIENT; // TODO definir codigos de error
 }
 
+int setupTCPRemoteSocket(const struct destination_info *destination) {
+    int remoteSock = socket(destination->addressType == IPV6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+    if (remoteSock < 0) {
+        log(ERROR, "socket() failed: %s", strerror(errno));
+        return -1;
+    }
+
+    // Set the socket to non-blocking mode
+    if (selector_fd_set_nio(remoteSock) < 0) {
+        log(ERROR, "Failed to set remote socket to non-blocking mode: %s", strerror(errno));
+        close(remoteSock);
+        return -1;
+    }
+
+    // Connect to the remote address
+    struct sockaddr_storage remoteAddr;
+    memset(&remoteAddr, 0, sizeof(remoteAddr));
+    socklen_t addrLen = 0;
+
+    if (destination->addressType == IPV4) {
+        struct sockaddr_in *addr = (struct sockaddr_in *) &remoteAddr;
+        addr->sin_family = AF_INET;
+        addr->sin_port = htons(destination->port);
+        addr->sin_addr.s_addr = htonl(destination->address.ipv4);
+        addrLen = sizeof(struct sockaddr_in);
+    } else if (destination->addressType == IPV6) {
+        struct sockaddr_in6 *addr = (struct sockaddr_in6 *) &remoteAddr;
+        addr->sin6_family = AF_INET6;
+        addr->sin6_port = htons(destination->port);
+        memcpy(&addr->sin6_addr, &destination->address.ipv6, sizeof(struct in6_addr));
+        addrLen = sizeof(struct sockaddr_in6);
+    } else if (destination->addressType == DOMAINNAME) {
+        struct addrinfo hints = {0}, *res;
+        hints.ai_family = AF_UNSPEC; // Allow both IPv4 and IPv6
+        hints.ai_socktype = SOCK_STREAM;
+        hints.ai_protocol = IPPROTO_TCP; // TCP protocol
+
+        char portStr[8];
+        snprintf(portStr, sizeof(portStr), "%d", destination->port);
+
+        int ret = getaddrinfo(destination->address.domainName, portStr, &hints, &res);
+        if (ret != 0) {
+            log(ERROR, "getaddrinfo() failed for domain %s: %s", destination->address.domainName, gai_strerror(ret));
+            close(remoteSock);
+            return -1;
+        }
+
+        for (struct addrinfo *p = res; p != NULL; p = p->ai_next) {
+            // Try to use the address
+            if (p->ai_family == AF_INET || p->ai_family == AF_INET6) {
+                // Found a valid address
+                memcpy(&remoteAddr, p->ai_addr, p->ai_addrlen);
+                addrLen = p->ai_addrlen;
+                break;
+            }
+        }
+
+        if (addrLen == 0) {
+            log(ERROR, "No valid addresses found for domain %s", destination->address.domainName);
+            freeaddrinfo(res);
+            close(remoteSock);
+            return -1;
+        }
+
+        // Free the address info structure
+        freeaddrinfo(res);
+    } else {
+        log(ERROR, "Unsupported address type: %d", destination->addressType);
+        close(remoteSock);
+        return -1;
+    }
+
+    if (connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen) < 0) {
+        if (errno != EINPROGRESS) { // Non-blocking connect
+            log(ERROR, "connect() failed: %s", strerror(errno));
+            close(remoteSock);
+            return -1;
+        }
+    }
+    // Print remote address of socket
+    printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);
+    log(INFO, "Connecting to remote %s", addrBuffer);
+    return remoteSock;
+}
 
 
 int initializeClientData(clientData *data) {
