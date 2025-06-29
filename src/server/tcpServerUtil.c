@@ -157,13 +157,31 @@ int setupTCPRemoteSocket(const struct destination_info *destination) {
             return -1;
         }
 
-        for (const struct addrinfo *p = res; p != NULL; p = p->ai_next) {
+        for (struct addrinfo *p = res; p != NULL; p = p->ai_next) {
             // Try to use the address
             if (p->ai_family == AF_INET || p->ai_family == AF_INET6) {
-                // Found a valid address
-                memcpy(&remoteAddr, p->ai_addr, p->ai_addrlen);
-                addrLen = p->ai_addrlen;
-                break;
+
+                if (connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen) < 0) {
+                    if (errno != EINPROGRESS) { // Non-blocking connect //TODO check related errors
+                        log(ERROR, "connect() failed: %s", strerror(errno));
+                        close(remoteSock);
+                        return -1;
+                    }
+                }
+                // Copy the address to remoteAddr
+                if (p->ai_family == AF_INET) {
+                    struct sockaddr_in *addr = (struct sockaddr_in *) &remoteAddr;
+                    memcpy(addr, p->ai_addr, sizeof(struct sockaddr_in));
+                    addrLen = sizeof(struct sockaddr_in);
+                } else if (p->ai_family == AF_INET6) {
+                    struct sockaddr_in6 *addr = (struct sockaddr_in6 *) &remoteAddr;
+                    memcpy(addr, p->ai_addr, sizeof(struct sockaddr_in6));
+                    addrLen = sizeof(struct sockaddr_in6);
+                }
+                // Print the address we are connecting to
+                printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);
+                log(INFO, "Connecting to remote %s", addrBuffer);
+                break; // Exit loop after first successful address
             }
         }
 
@@ -182,7 +200,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination) {
         return -1;
     }
 
-    if (connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen) < 0) {
+    if (destination->addressType != DOMAINNAME && connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen) < 0) {
         if (errno != EINPROGRESS) { // Non-blocking connect
             log(ERROR, "connect() failed: %s", strerror(errno));
             close(remoteSock);
@@ -246,7 +264,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         close(remoteSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
     }
-    buffer_init(remoteBuffer, BUFSIZE, (uint8_t *)remoteBufferData); // Initialize the buffer with a size
+    buffer_init(remoteBuffer, BUFSIZE, (uint8_t *)remoteBufferData); // Initialize the buffer with a size //TODO put this buffer somewhere to read from destination
 
 
     struct sockaddr_storage remoteAddr;
@@ -288,7 +306,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
 
     // Register the remote socket with the selector
-    if (selector_register(key->s, remoteSocket, remote_handler, OP_READ, remoteData) != SELECTOR_SUCCESS) {
+    if (selector_register(key->s, remoteSocket, remote_handler, OP_WRITE, remoteData) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
         free(remoteData->buffer->data); // Free the buffer data
         free(remoteData->buffer); // Free the buffer
