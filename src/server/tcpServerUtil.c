@@ -153,7 +153,7 @@ struct state_machine * createRemoteStateMachine() {
     stm_init(stm);
     return stm;
 }
- int remoteSocketInit(const int remoteSocket, struct selector_key *key) {
+ int remoteSocketInit(const int remoteSocket, struct selector_key *key, const struct addrinfo *remoteAddrInfo) {
     clientData *data = key->data;
 
     buffer *remoteBuffer = malloc(sizeof(buffer)); // Create a buffer for the remote socket
@@ -184,6 +184,9 @@ struct state_machine * createRemoteStateMachine() {
     rData->stm = createRemoteStateMachine(); // Create the state machine for the remote socket
     data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
     data->remoteSocket = remoteSocket; // Store the remote socket in client data
+
+
+    rData->remoteAddrInfo = remoteAddrInfo; // Store the remote address info for potential retries
 
     // Register the remote socket with the selector
     if (selector_register(key->s, remoteSocket, &relay_handler, OP_WRITE, rData) != SELECTOR_SUCCESS) {
@@ -287,12 +290,11 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
                     if (errno != EINPROGRESS) { // Non-blocking connect //TODO check related errors
                         log(ERROR, "connect() failed: %s", strerror(errno));
                         close(remoteSock);
-                        return -1;
+                        continue;
                     }
-                    if (remoteSocketInit(remoteSock, key) < 0 )
+                    if (remoteSocketInit(remoteSock, key, p->ai_next) < 0 )
                         return -1; // Initialize the remote socket
                     selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
-                    return remoteSock;
                 }
                 // Copy the address to remoteAddr
                 if (p->ai_family == AF_INET) {
@@ -307,7 +309,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
                 // Print the address we are connecting to
                 printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);
                 log(INFO, "Connecting to remote %s", addrBuffer);
-                break; // Exit loop after first successful address
+                return remoteSock;
             }
         }
 
@@ -333,7 +335,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
             return -1;
         }
         log(INFO, "connect() in progress for remote address");
-        if (remoteSocketInit(remoteSock, key) < 0 )
+        if (remoteSocketInit(remoteSock, key, NULL) < 0 )
             return -1; // Initialize the remote socket
         selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
         return remoteSock;
@@ -364,7 +366,6 @@ int acceptTCPConnection(int servSock) {
     return clntSock;
 }
 
-
 unsigned connectWrite(struct selector_key * key) {
     remoteData *data = key->data;
 
@@ -377,8 +378,46 @@ unsigned connectWrite(struct selector_key * key) {
             log(ERROR, "getsockopt() failed: %s", strerror(errno));
             return RELAY_ERROR; // TODO definir codigos de error
         }
-        if (error != 0) { //TODO: probar con la siguiente opcion
+
+        if (error != 0) { //TODO: revisar pero parece funcionar, deberia cerrar el socket anterior?
             log(ERROR, "Connection error on remote socket %d: %s",key->fd , strerror(error));
+
+            int newRemoteSocket = -1;
+
+            for (struct addrinfo *addr = data->remoteAddrInfo; addr != NULL; addr = addr->ai_next) {
+                log(INFO, "Trying next address: %s", printAddressPort(addr, addrBuffer));
+                newRemoteSocket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
+                if (newRemoteSocket < 0) {
+                    log(ERROR, "Failed to create socket for address %s: %s", addrBuffer, strerror(errno));
+                    continue;
+                }
+
+                if (selector_fd_set_nio(newRemoteSocket) < 0) {
+                    log(ERROR, "Failed to set non-blocking mode for address %s: %s", addrBuffer, strerror(errno));
+                    close(newRemoteSocket);
+                    newRemoteSocket = -1; // Reset to indicate failure
+                    continue;
+                }
+
+                if (connect(newRemoteSocket, addr->ai_addr, addr->ai_addrlen) < 0) {
+                    if (errno != EINPROGRESS) { // Non-blocking connect
+                        log(ERROR, "connect() failed for address %s: %s", addrBuffer, strerror(errno));
+                        close(newRemoteSocket);
+                        newRemoteSocket = -1; // Reset to indicate failure
+                        continue;
+                    }
+                }
+
+                // Successfully connected to a new address
+                if (remoteSocketInit(newRemoteSocket, key, addr->ai_next) < 0) {
+                    return RELAY_ERROR; // TODO definir codigos de error, deberia mandar continue?
+                }
+                setRemoteAddress(newRemoteSocket, data); // Set the remote address in remoteData
+                selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
+                return RELAY_CONNECTING; // Change to the connecting state
+            }
+
+
             return RELAY_ERROR;
         }
         data->connectionReady = 1;
@@ -401,7 +440,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
     // Prepare the response to send to the client
     response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
-    response[1] = 0x00; // Respuesta OK (no error)
+    response[1] = SOCKS5_SUCCEEDED; // Respuesta OK (no error)
     response[2] = RSV; // Reservado, debe ser 0x00
 
     // Get the local address info for the remote socket

@@ -6,6 +6,7 @@
 #include "../selector.h"  // Added include for selector_key struct
 #include "../stm.h"
 #include "../buffer.h"
+#include <netdb.h>
 
 #define SOCKS_VERSION 5 // Version for SOCKS protocol
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
@@ -86,6 +87,7 @@ typedef struct {
     struct state_machine *stm; // Pointer to the state machine
     buffer *buffer; // Buffer for reading/writing data
   bool connectionReady;
+  struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
 } remoteData;
 
 // Create, bind, and listen a new TCP server socket
