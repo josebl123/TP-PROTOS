@@ -97,6 +97,8 @@ int acceptTCPConnection(int servSock);
 // Handle read events on the master socket (new connections)
 void handleMasterRead( struct selector_key *key);
 
+void handleMasterClose(struct selector_key *key);
+
 void handleClientRead(struct selector_key *key);
 
 void handleTCPEchoClientClose(struct selector_key *key);
