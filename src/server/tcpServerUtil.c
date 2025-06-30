@@ -30,34 +30,43 @@ static char addrBuffer[MAX_ADDR_BUFFER];
  ** Se encarga de resolver el número de puerto para service (puede ser un string con el numero o el nombre del servicio)
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
-void handleTcpClose(const unsigned state,  struct selector_key *key) {
-    int clntSocket = key->fd; // Socket del cliente
+void handleTcpClose(  struct selector_key *key) {
+    log(INFO, "Closing client socket %d", key->fd);
     clientData *data =  key->data;
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
-    selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
-    if (state == ERROR_CLIENT) {
-        log(ERROR, "Closing client socket %d due to error", clntSocket);
-    } else {
-        log(INFO, "Closing client socket %d after completion", clntSocket);
-    }
+
     free(data->clientBuffer->data);
     free(data->clientBuffer);
     free(data);
+    // Close the client socket
+    close(key->fd);
 }
-void handleRemoteClose(const unsigned state, struct selector_key *key) {
-    const int remoteSocket = key->fd; // Socket remoto
+void handleRemoteClose( struct selector_key *key) {
+    log(INFO, "Closing remote socket %d", key->fd);
     remoteData *data = key->data;
-    if (state == RELAY_ERROR) {
-        log(ERROR, "Closing remote socket %d due to error", remoteSocket);
-    } else {
-        log(INFO, "Closing remote socket %d after completion", remoteSocket);
-    }
+
     free(data->stm);
     free(data->buffer->data); // Liberar memoria del buffer
     free(data->buffer); // Liberar memoria del buffer
     free(data); // Liberar memoria de remoteData
+    close(key->fd);
 }
-
+void clientClose(const unsigned state, struct selector_key *key) {
+    if (state == ERROR_CLIENT) {
+        log(ERROR, "Closing remote socket %d due to error", key->fd);
+    } else {
+        log(INFO, "Closing remote socket %d after completion", key->fd);
+    }
+    selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
+}
+void remoteClose(const unsigned state, struct selector_key *key) {
+    if (state == RELAY_ERROR) {
+        log(ERROR, "Closing remote socket %d due to error", key->fd);
+    } else {
+        log(INFO, "Closing remote socket %d after completion", key->fd);
+    }
+    selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
+}
  static const struct state_definition states[] = {
     [HELLO_READ] =    { .state = HELLO_READ, .on_read_ready = handleHelloRead },
     [HELLO_WRITE] =   { .state = HELLO_WRITE, .on_write_ready = handleHelloWrite },
@@ -65,29 +74,29 @@ void handleRemoteClose(const unsigned state, struct selector_key *key) {
     [AUTH_WRITE] =    { .state = AUTH_WRITE, .on_write_ready = handleAuthWrite },
     [REQUEST_READ] =  { .state = REQUEST_READ, .on_read_ready = handleRequestRead },
     [REQUEST_WRITE] = { .state = REQUEST_WRITE, .on_write_ready = handleRequestWrite },
-    [DONE] =          { .state = DONE, .on_arrival = handleTcpClose },
-    [ERROR_CLIENT] =  { .state = ERROR_CLIENT,.on_arrival = handleTcpClose},
+    [DONE] =          { .state = DONE, .on_arrival = clientClose },
+    [ERROR_CLIENT] =  { .state = ERROR_CLIENT,.on_arrival = clientClose},
     [RELAY_CLIENT] = { .state = RELAY_CLIENT, .on_read_ready = handleRelayClientRead,.on_write_ready = handleRelayClientWrite  },
 };
 
 static const struct state_definition relay_states[] = {
     [RELAY_CONNECTING] = { .state = RELAY_CONNECTING, .on_write_ready = connectWrite }, // This state handles the connection to the remote server
     [RELAY_REMOTE] = { .state = RELAY_REMOTE, .on_read_ready = handleRelayRemoteRead, .on_write_ready = handleRelayRemoteWrite },
-    [RELAY_DONE] = { .state = RELAY_DONE, .on_arrival = handleRemoteClose },
-    [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = handleRemoteClose },
+    [RELAY_DONE] = { .state = RELAY_DONE, .on_arrival = remoteClose },
+    [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = remoteClose },
 };
 
  static const fd_handler client_handler = {
     .handle_read = socks5_read, // Initial read handler
     .handle_write = socks5_write, // Initial write handler
     .handle_block = NULL, // Not used in this case
-    .handle_close = NULL // Close handler
+    .handle_close =  handleTcpClose// Close handler
 };
 static const fd_handler relay_handler = {
     .handle_read = socks5_relay_read, // Relay read handler
     .handle_write = socks5_relay_write, // Relay write handler
     .handle_block = NULL, // Not used in this case
-    .handle_close = NULL // Relay close handler
+    .handle_close = handleRemoteClose // Relay close handler
 };
 
 
@@ -687,6 +696,9 @@ int initializeClientData(clientData *data) {
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
     return 0;
+}
+void handleMasterClose(struct selector_key *key) {
+    close(key->fd); // Close the master socket
 }
 
 void handleMasterRead(struct selector_key *key) {
