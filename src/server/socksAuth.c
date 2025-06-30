@@ -19,9 +19,9 @@ unsigned handleHelloRead(struct selector_key *key) {
     log(INFO, "hello Read");
     // Recibir mensaje del cliente
     size_t writeLimit;
-    uint8_t *writePtr = buffer_write_ptr(data->buffer, &writeLimit);
+    uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
-    buffer_write_adv(data->buffer, numBytesRcvd);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
         log(ERROR, "recv() failed on client socket %d", clntSocket);
@@ -31,16 +31,16 @@ unsigned handleHelloRead(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
-      const uint8_t socksVersion = buffer_read(data->buffer);
-      const uint8_t totalAuthMethods = buffer_read(data->buffer);
+      const uint8_t socksVersion = buffer_read(data->clientBuffer);
+      const uint8_t totalAuthMethods = buffer_read(data->clientBuffer);
         log(INFO, "Total methods: %d", totalAuthMethods); //sumo 1 porque es el segundo byte del saludo
       if( socksVersion == SOCKS_VERSION ){ //chequea que sea SOCKS5
         for(int i =0; i < totalAuthMethods; i++){
-          if(buffer_read(data->buffer) == AUTH_METHOD_PASSWORD){
+          if(buffer_read(data->clientBuffer) == AUTH_METHOD_PASSWORD){
 			data->authMethod = AUTH_METHOD_PASSWORD;
             selector_set_interest_key(key, OP_WRITE);
             log(INFO, "Selected authentication method: Password");
-            buffer_reset(data->buffer);
+            buffer_reset(data->clientBuffer);
             return HELLO_WRITE; // Cambiar al estado de escritura de saludo
           }
         }
@@ -86,9 +86,9 @@ unsigned handleAuthRead(struct selector_key *key) {
     clientData *data = key->data;
     log(INFO, "reading auth info");
     size_t writeLimit;
-    uint8_t *readPtr = buffer_write_ptr(data->buffer, &writeLimit);
+    uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
-    buffer_write_adv(data->buffer, numBytesRcvd);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
@@ -98,9 +98,9 @@ unsigned handleAuthRead(struct selector_key *key) {
         return DONE;
     }
     int usernameLength ; // Longitud del nombre de usuario
-    const uint8_t socksVersion = buffer_read(data->buffer);
+    const uint8_t socksVersion = buffer_read(data->clientBuffer);
     if( socksVersion == SUBNEGOTIATION_VERSION && numBytesRcvd >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes TODO magic nums
-        usernameLength = buffer_read(data->buffer); // Longitud del nombre de usuario
+        usernameLength = buffer_read(data->clientBuffer); // Longitud del nombre de usuario
         log(INFO, "Username length: %d", usernameLength);
     } else {
         // Si no es SOCKS_VERSION o no tengo suficientes bytes, error
@@ -111,19 +111,19 @@ unsigned handleAuthRead(struct selector_key *key) {
         log(ERROR, "Incomplete authentication data received");
         return AUTH_READ; // TODO definir codigos de error
     }
-    strncpy( data->authInfo.username, (char *) data->buffer->read, usernameLength); // Copio el nombre de usuario al buffer
-    buffer_read_adv(data->buffer, usernameLength); // Avanzo el puntero de lectura del buffer
+    strncpy( data->authInfo.username, (char *) data->clientBuffer->read, usernameLength); // Copio el nombre de usuario al buffer
+    buffer_read_adv(data->clientBuffer, usernameLength); // Avanzo el puntero de lectura del buffer
     data->authInfo.username[usernameLength] = '\0'; // Asegurar que el nombre de usuario esté terminado en nulo
     log(INFO, "Received username: %s", data->authInfo.username);
 
-    const int passwordLength = buffer_read(data->buffer); // TODO: faltan chequeos de errores
+    const int passwordLength = buffer_read(data->clientBuffer); // TODO: faltan chequeos de errores
 
     if( false ) { // TODO: este chequeo
         log(ERROR, "Incomplete authentication data received");
         return AUTH_READ; // TODO definir codigos de error
     }
-    strncpy( data->authInfo.password,(char *) data->buffer->read, passwordLength); // Copio el nombre de usuario al buffer
-    buffer_read_adv(data->buffer, passwordLength);// Avanzo el offset del buffer
+    strncpy( data->authInfo.password,(char *) data->clientBuffer->read, passwordLength); // Copio el nombre de usuario al buffer
+    buffer_read_adv(data->clientBuffer, passwordLength);// Avanzo el offset del buffer
     data->authInfo.password[passwordLength] = '\0'; // Asegurar que la contraseña esté terminada en nulo
     log(INFO, "Received password: %s", data->authInfo.password);
     selector_set_interest_key(key, OP_WRITE); // TODO: devuelve estado, chequear
@@ -167,6 +167,6 @@ unsigned handleAuthWrite(struct selector_key *key) {
         log(INFO, "Sent authentication response to client socket %d", clntSocket);
         return REQUEST_READ;
     }
-    buffer_read_adv(data->buffer, numBytesSent);
+    buffer_read_adv(data->clientBuffer, numBytesSent);
     return AUTH_WRITE;
 }

@@ -21,6 +21,13 @@ enum socks5_states {
   REQUEST_WRITE,
   DONE,
   ERROR_CLIENT,
+  RELAY_CLIENT,
+};
+
+enum relay_states {
+  RELAY_REMOTE,
+  RELAY_DONE,
+  RELAY_ERROR,
 };
 
 enum ADDRESS_TYPE {
@@ -31,7 +38,7 @@ enum ADDRESS_TYPE {
 
 
 typedef struct {
-  buffer * buffer;
+  buffer * clientBuffer;
   size_t bufferSize;
   size_t bufferOffset;
   struct state_machine *stm; // Pointer to the state machine
@@ -50,10 +57,13 @@ typedef struct {
     } address;
     uint16_t port; // Destination port
   } destination; // Destination information
+
+  int remoteSocket; // Socket for the remote connection
+  buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
 } clientData;
 
 typedef struct {
-    int fd; // File descriptor for the remote socket
+    int client_fd; // File descriptor for the remote socket
     struct sockaddr_storage remoteAddr; // Remote address information
     clientData *client; // Pointer to the client data structure
     struct state_machine *stm; // Pointer to the state machine
