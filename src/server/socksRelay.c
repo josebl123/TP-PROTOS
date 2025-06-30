@@ -8,7 +8,36 @@
 #include <errno.h>
 #include <string.h>
 
+void update_selector_interests(struct selector_key *key, clientData *clientData, int clientFd, int remoteFd) {
+    fd_interest client_interest = OP_NOOP;
+    fd_interest remote_interest = OP_NOOP;
 
+    // === CLIENTE ===
+    // ¿Podemos leer del cliente? (hay espacio en su buffer)
+    if (buffer_can_write(clientData->clientBuffer)) {
+        client_interest |= OP_READ;
+    }
+
+    // ¿Podemos escribir al cliente? (hay datos del remoto para enviar)
+    if (buffer_can_read(clientData->remoteBuffer)) {
+        client_interest |= OP_WRITE;
+    }
+
+    // === REMOTO ===
+    // ¿Podemos leer del remoto? (hay espacio en su buffer)
+    if (buffer_can_write(clientData->remoteBuffer)) {
+        remote_interest |= OP_READ;
+    }
+
+    // ¿Podemos escribir al remoto? (hay datos del cliente para enviar)
+    if (buffer_can_read(clientData->clientBuffer)) {
+        remote_interest |= OP_WRITE;
+    }
+
+    // Aplicar los intereses
+    selector_set_interest(key->s, clientFd, client_interest);
+    selector_set_interest(key->s, remoteFd, remote_interest);
+}
 unsigned handleRelayClientRead(struct selector_key *key){
     int clntSocket = key->fd; // Socket del cliente
     const clientData *data = key->data;
@@ -28,7 +57,6 @@ unsigned handleRelayClientRead(struct selector_key *key){
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
-    log(INFO, "Message received from client: %.*s", (int)numBytesRcvd, (char *)writePtr);
 
     if (buffer_can_write(data->remoteBuffer)) {
         selector_set_interest(key->s, data->remoteSocket, OP_WRITE | OP_READ); // Cambiar el interés a escritura en el socket remoto
@@ -45,7 +73,7 @@ unsigned handleRelayClientRead(struct selector_key *key){
         selector_set_interest(key->s, clntSocket, OP_NOOP); // Cambiar el interés a no hacer nada en el socket del cliente
     }
 
-    // Aquí se podría procesar el mensaje recibido del cliente
+    update_selector_interests(key, key->data, clntSocket, data->remoteSocket); // Actualizar los intereses del selector
 
     return RELAY_CLIENT; // Cambiar al estado de escritura de cliente relay
 }
@@ -69,23 +97,8 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
-    log(INFO, "Message sent to client: %.*s", (int)numBytesSent, (char *)readPtr);
 
-    if (buffer_can_read(data->remoteBuffer) && buffer_can_write(data->clientBuffer)) {
-        selector_set_interest(key->s, clntSocket, OP_READ | OP_WRITE); // Cambiar el interés a lectura y escritura en el socket del cliente
-    } else if (buffer_can_read(data->remoteBuffer)) {
-        selector_set_interest(key->s, clntSocket, OP_WRITE); // Cambiar el interés a lectura en el socket del cliente
-    } else if (buffer_can_write(data->clientBuffer)) {
-        selector_set_interest(key->s, clntSocket, OP_READ); // Cambiar el interés a escritura en el socket del cliente
-    } else {
-        selector_set_interest(key->s, clntSocket, OP_NOOP); // Cambiar el interés a no hacer nada en el socket del cliente
-    }
-
-    if (buffer_can_read(data->clientBuffer)) {
-        selector_set_interest(key->s, data->remoteSocket, OP_READ | OP_WRITE); // Cambiar el interés a lectura en el socket remoto
-    } else {
-        selector_set_interest(key->s, data->remoteSocket, OP_READ); // Cambiar el interés a no hacer nada en el socket remoto
-    }
+    update_selector_interests(key, key->data, clntSocket, data->remoteSocket); // Actualizar los intereses del selector
 
     return RELAY_CLIENT; // Cambiar al estado de lectura de cliente relay
   }
@@ -107,22 +120,8 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
     }
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     log(INFO, "Received %zd bytes from remote socket %d", numBytesRcvd, remoteSocket);
-    log(INFO, "Message received from remote: %.*s", (int)numBytesRcvd, (char *)writePtr);
     // Aquí se podría procesar el mensaje recibido del socket remoto
-    if (buffer_can_write(data->client->clientBuffer)) {
-        selector_set_interest(key->s, data->client_fd, OP_WRITE | OP_READ); // Cambiar el interés a escritura en el socket remoto
-    } else {
-        selector_set_interest(key->s, data->client_fd, OP_WRITE);
-    }
-    if ( buffer_can_write(data->buffer) && buffer_can_read(data->client->clientBuffer)  ) {
-        selector_set_interest(key->s, remoteSocket, OP_WRITE | OP_READ); // Cambiar el interés a escritura en el socket del cliente
-    } else  if (buffer_can_write(data->client->clientBuffer)) {
-        selector_set_interest(key->s, remoteSocket, OP_READ);
-    } else if (buffer_can_read(data->buffer)) {
-        selector_set_interest(key->s, remoteSocket, OP_WRITE); // Cambiar el interés a lectura en el socket del cliente
-    } else {
-        selector_set_interest(key->s, remoteSocket, OP_NOOP); // Cambiar el interés a no hacer nada en el socket del cliente
-    }
+    update_selector_interests(key, data->client, data->client_fd, remoteSocket); // Actualizar los intereses del selector
 
     return  RELAY_REMOTE; // Cambiar al estado de escritura de remoto relay
 }
@@ -132,7 +131,7 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     // Enviar mensaje al socket remoto
     log(INFO, "Writing to remote socket %d", remoteSocket);
     size_t readLimit;
-    const uint8_t *readPtr = buffer_read_ptr(data->client->clientBuffer, &readLimit);
+    const uint8_t *readPtr = buffer_read_ptr(data->client->clientBuffer, &readLimit); //FIXME: data->client puede ser NULL si el cliente cierra la conexión antes de que se envíe el mensaje
     const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, MSG_DONTWAIT);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
@@ -144,22 +143,9 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     }
     buffer_read_adv(data->client->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Sent %zd bytes to remote socket %d", numBytesSent, remoteSocket);
-    log(INFO, "Message sent to remote: %.*s", (int)numBytesSent, (char *)readPtr);
 
-    if (buffer_can_read(data->client->clientBuffer) && buffer_can_write(data->buffer)) {
-        selector_set_interest(key->s, remoteSocket, OP_READ | OP_WRITE); // Cambiar el interés a lectura y escritura en el socket del cliente
-    } else if (buffer_can_read(data->client->clientBuffer)) {
-        selector_set_interest(key->s, remoteSocket, OP_WRITE); // Cambiar el interés a lectura en el socket del cliente
-    } else if (buffer_can_write(data->buffer)) {
-        selector_set_interest(key->s, remoteSocket, OP_READ); // Cambiar el interés a escritura en el socket del cliente
-    } else {
-        selector_set_interest(key->s, remoteSocket, OP_NOOP); // Cambiar el interés a no hacer nada en el socket del cliente
-    }
-
-    if (buffer_can_read(data->buffer)) {
-        selector_set_interest(key->s, data->client_fd, OP_READ | OP_WRITE); // Cambiar el interés a lectura en el socket remoto
-    } else {
-        selector_set_interest(key->s, data->client_fd, OP_READ); // Cambiar el interés a no hacer nada en el socket remoto
-    }
+    update_selector_interests(key, data->client, data->client_fd, remoteSocket);
     return RELAY_REMOTE; // Cambiar al estado de lectura de remoto relay
 }
+
+

@@ -25,6 +25,7 @@ enum socks5_states {
 };
 
 enum relay_states {
+  RELAY_CONNECTING,
   RELAY_REMOTE,
   RELAY_DONE,
   RELAY_ERROR,
@@ -39,8 +40,6 @@ enum ADDRESS_TYPE {
 
 typedef struct {
   buffer * clientBuffer;
-  size_t bufferSize;
-  size_t bufferOffset;
   struct state_machine *stm; // Pointer to the state machine
   uint8_t authMethod;
   struct auth_info {
@@ -68,6 +67,7 @@ typedef struct {
     clientData *client; // Pointer to the client data structure
     struct state_machine *stm; // Pointer to the state machine
     buffer *buffer; // Buffer for reading/writing data
+  bool connectionReady;
 } remoteData;
 
 // Create, bind, and listen a new TCP server socket
@@ -84,7 +84,7 @@ void handleClientRead(struct selector_key *key);
 void handleTCPEchoClientClose(struct selector_key *key);
 
 
-
+unsigned connectWrite(struct selector_key *key);
 // Handle reading the request from the client
 unsigned handleRequestRead(struct selector_key *key);
 // Handle writing to the client socket

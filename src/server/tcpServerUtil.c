@@ -16,7 +16,7 @@
 
 #define MAXPENDING 5 // Maximum outstanding connection requests
 #define MAX_ADDR_BUFFER 128
-#define BUFSIZE 1024 // Buffer size for client data
+#define BUFSIZE 1024  // Buffer size for client data
 
 
 #define CONNECT 1
@@ -33,6 +33,7 @@ static char addrBuffer[MAX_ADDR_BUFFER];
 void handleTcpClose(const unsigned state,  struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data =  key->data;
+    selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
     selector_unregister_fd(key->s, clntSocket); // Desregistrar el socket del cliente
     if (state == ERROR_CLIENT) {
         log(ERROR, "Closing client socket %d due to error", clntSocket);
@@ -42,6 +43,19 @@ void handleTcpClose(const unsigned state,  struct selector_key *key) {
     free(data->clientBuffer->data);
     free(data->clientBuffer);
     free(data);
+}
+void handleRemoteClose(const unsigned state, struct selector_key *key) {
+    const int remoteSocket = key->fd; // Socket remoto
+    remoteData *data = key->data;
+    if (state == RELAY_ERROR) {
+        log(ERROR, "Closing remote socket %d due to error", remoteSocket);
+    } else {
+        log(INFO, "Closing remote socket %d after completion", remoteSocket);
+    }
+    free(data->stm);
+    free(data->buffer->data); // Liberar memoria del buffer
+    free(data->buffer); // Liberar memoria del buffer
+    free(data); // Liberar memoria de remoteData
 }
 
  static const struct state_definition states[] = {
@@ -57,9 +71,10 @@ void handleTcpClose(const unsigned state,  struct selector_key *key) {
 };
 
 static const struct state_definition relay_states[] = {
+    [RELAY_CONNECTING] = { .state = RELAY_CONNECTING, .on_write_ready = connectWrite }, // This state handles the connection to the remote server
     [RELAY_REMOTE] = { .state = RELAY_REMOTE, .on_read_ready = handleRelayRemoteRead, .on_write_ready = handleRelayRemoteWrite },
-    [RELAY_DONE] = { .state = RELAY_DONE,/* .on_arrival = handleTcpClose */},
-    [RELAY_ERROR] = { .state = RELAY_ERROR, /*.on_arrival = handleTcpClose */},
+    [RELAY_DONE] = { .state = RELAY_DONE, .on_arrival = handleRemoteClose },
+    [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = handleRemoteClose },
 };
 
  static const fd_handler client_handler = {
@@ -126,18 +141,88 @@ int setupTCPServerSocket(const char *service) {
 
     return servSock;
 }
-int setupTCPRemoteSocket(const struct destination_info *destination) {
+struct state_machine * createRemoteStateMachine() {
+    struct state_machine *stm = malloc(sizeof(struct state_machine));
+    if (stm == NULL) {
+        log(ERROR, "Failed to allocate memory for remote state machine");
+        return NULL;
+    }
+    stm->initial = RELAY_CONNECTING; // Initial state for remote relay
+    stm->states = relay_states; // Use the relay states defined above
+    stm->max_state = RELAY_ERROR; // Total number of states in the relay machine
+    stm_init(stm);
+    return stm;
+}
+ int remoteSocketInit(const int remoteSocket, struct selector_key *key) {
+    clientData *data = key->data;
+
+    buffer *remoteBuffer = malloc(sizeof(buffer)); // Create a buffer for the remote socket
+    if (remoteBuffer == NULL) {
+        log(ERROR, "Failed to allocate memory for remote buffer");
+        close(remoteSocket);
+        return -1; // TODO definir codigos de error
+    }
+    remoteBuffer->data = malloc(BUFSIZE); // Allocate memory for the buffer data
+    if (remoteBuffer->data == NULL) {
+        log(ERROR, "Failed to allocate memory for remote buffer data");
+        free(remoteBuffer);
+        close(remoteSocket);
+        return -1; // TODO definir codigos de error
+    }
+    buffer_init(remoteBuffer, BUFSIZE, remoteBuffer->data); // Initialize the buffer with a size //TODO put this buffer somewhere to read from destination
+    remoteData *rData = malloc(sizeof(remoteData)); // Create a remoteData structure
+    if (rData == NULL) {
+        log(ERROR, "Failed to allocate memory for remoteData");
+        free(remoteBuffer->data);
+        free(remoteBuffer);
+        close(remoteSocket);
+        return -1; // TODO definir codigos de error
+    }
+    rData->client_fd = key->fd; // Set the remote socket file descriptor
+    rData->client = data; // Set the client data
+    rData->buffer = remoteBuffer; // Set the buffer for the remote socket
+    rData->stm = createRemoteStateMachine(); // Create the state machine for the remote socket
+    data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
+    data->remoteSocket = remoteSocket; // Store the remote socket in client data
+
+    // Register the remote socket with the selector
+    if (selector_register(key->s, remoteSocket, &relay_handler, OP_WRITE, rData) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
+        free(rData->buffer->data); // Free the buffer data
+        free(rData->buffer); // Free the buffer
+        free(rData); // Free the remoteData structure
+        close(remoteSocket); // Close the remote socket
+        return -1; // TODO definir codigos de error
+    }
+    return 0;
+}
+int setRemoteAddress(const int remoteSocket,remoteData *rData) {
+
+    struct sockaddr_storage remoteAddr;
+    socklen_t remoteAddrLen = sizeof(remoteAddr);
+    if (getsockname(remoteSocket, (struct sockaddr *)&remoteAddr, &remoteAddrLen) < 0) {
+        log(ERROR, "Failed to get remote socket address: %s", strerror(errno));
+        close(remoteSocket); // Close the remote socket
+        return -1; // TODO definir codigos de error
+    }
+    rData->remoteAddr = remoteAddr; // Set the remote address
+    return 0;
+}
+
+int setupTCPRemoteSocket(const struct destination_info *destination,  struct selector_key * key) {
+    clientData *data = key->data; // Get the client data from the key
     int remoteSock = -1;
     // Connect to the remote address
     struct sockaddr_storage remoteAddr = {0};
     socklen_t addrLen = 0;
 
     if (destination->addressType == IPV4) {
-         remoteSock = socket(destination->addressType == IPV6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+         remoteSock = socket( AF_INET, SOCK_STREAM, 0);
         if (remoteSock < 0) {
             log(ERROR, "socket() failed: %s", strerror(errno));
             return -1;
         }
+        data->remoteSocket = remoteSock; // Store the remote socket in client data
 
         // Set the socket to non-blocking mode
         if (selector_fd_set_nio(remoteSock) < 0) {
@@ -151,7 +236,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination) {
         addr->sin_addr.s_addr = htonl(destination->address.ipv4);
         addrLen = sizeof(struct sockaddr_in);
     } else if (destination->addressType == IPV6) {
-        remoteSock = socket(destination->addressType == IPV6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
+        remoteSock = socket( AF_INET6, SOCK_STREAM, 0);
         if (remoteSock < 0) {
             log(ERROR, "socket() failed: %s", strerror(errno));
             return -1;
@@ -204,6 +289,10 @@ int setupTCPRemoteSocket(const struct destination_info *destination) {
                         close(remoteSock);
                         return -1;
                     }
+                    if (remoteSocketInit(remoteSock, key) < 0 )
+                        return -1; // Initialize the remote socket
+                    selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
+                    return remoteSock;
                 }
                 // Copy the address to remoteAddr
                 if (p->ai_family == AF_INET) {
@@ -243,6 +332,11 @@ int setupTCPRemoteSocket(const struct destination_info *destination) {
             close(remoteSock);
             return -1;
         }
+        log(INFO, "connect() in progress for remote address");
+        if (remoteSocketInit(remoteSock, key) < 0 )
+            return -1; // Initialize the remote socket
+        selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
+        return remoteSock;
     }
     // Print remote address of socket
     printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);
@@ -269,17 +363,31 @@ int acceptTCPConnection(int servSock) {
 
     return clntSock;
 }
-struct state_machine * createRemoteStateMachine() {
-    struct state_machine *stm = malloc(sizeof(struct state_machine));
-    if (stm == NULL) {
-        log(ERROR, "Failed to allocate memory for remote state machine");
-        return NULL;
+
+
+unsigned connectWrite(struct selector_key * key) {
+    remoteData *data = key->data;
+
+    if (data->connectionReady) {
+        log(INFO, "Connection already ready for client socket %d", key->fd);
+    } else {
+        int error =0;
+        socklen_t len = sizeof(error);
+        if ( getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
+            log(ERROR, "getsockopt() failed: %s", strerror(errno));
+            return RELAY_ERROR; // TODO definir codigos de error
+        }
+        if (error != 0) { //TODO: probar con la siguiente opcion
+            log(ERROR, "Connection error on remote socket %d: %s",key->fd , strerror(error));
+            return RELAY_ERROR;
+        }
+        data->connectionReady = 1;
     }
-    stm->initial = RELAY_REMOTE; // Initial state for remote relay
-    stm->states = relay_states; // Use the relay states defined above
-    stm->max_state = RELAY_ERROR; // Total number of states in the relay machine
-    stm_init(stm);
-    return stm;
+    setRemoteAddress(key->fd, data); // Set the remote address in remoteData
+    selector_set_interest(key->s,data->client_fd, OP_WRITE);
+    selector_set_interest(key->s, key->fd, OP_NOOP);
+    return RELAY_REMOTE; // Change to the relay remote state
+
 }
 
 unsigned handleRequestWrite(struct selector_key *key) {
@@ -291,69 +399,6 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
     char response[30] = {0}; // Buffer para la respuesta
 
-
-    //create remote socket
-    const int remoteSocket = setupTCPRemoteSocket(&data->destination);
-    if (remoteSocket < 0) {
-        log(ERROR, "Failed to create remote socket for client %d", clntSocket);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    log(INFO, "Remote socket %d created for client %d", remoteSocket, clntSocket);
-    // Register the remote socket with the selector
-    buffer *remoteBuffer = malloc(sizeof(buffer)); // Create a buffer for the remote socket
-    if (remoteBuffer == NULL) {
-        log(ERROR, "Failed to allocate memory for remote buffer");
-        close(remoteSocket);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-   remoteBuffer->data = malloc(BUFSIZE); // Allocate memory for the buffer data
-    if (remoteBuffer->data == NULL) {
-        log(ERROR, "Failed to allocate memory for remote buffer data");
-        free(remoteBuffer);
-        close(remoteSocket);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    buffer_init(remoteBuffer, BUFSIZE, (uint8_t *)remoteBuffer->data); // Initialize the buffer with a size //TODO put this buffer somewhere to read from destination
-
-
-    struct sockaddr_storage remoteAddr;
-    socklen_t remoteAddrLen = sizeof(remoteAddr);
-    if (getsockname(remoteSocket, (struct sockaddr *)&remoteAddr, &remoteAddrLen) < 0) {
-        log(ERROR, "Failed to get remote socket address: %s", strerror(errno));
-        free(remoteBuffer->data); // Free the buffer data
-        free(remoteBuffer); // Free the buffer
-        close(remoteSocket); // Close the remote socket
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    remoteData *rData = malloc(sizeof(remoteData)); // Create a remoteData structure
-    if (rData == NULL) {
-        log(ERROR, "Failed to allocate memory for remoteData");
-        free(remoteBuffer->data);
-        free(remoteBuffer);
-        close(remoteSocket);
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    rData->client_fd = key->fd; // Set the remote socket file descriptor
-    rData->remoteAddr = remoteAddr; // Set the remote address
-    rData->client = data; // Set the client data
-    rData->buffer = remoteBuffer; // Set the buffer for the remote socket
-    rData->stm = createRemoteStateMachine(); // Create the state machine for the remote socket
-
-    data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
-    data->remoteSocket = remoteSocket; // Store the remote socket in client data
-
-
-    // Register the remote socket with the selector
-    if (selector_register(key->s, remoteSocket, &relay_handler, OP_NOOP, rData) != SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
-        free(rData->buffer->data); // Free the buffer data
-        free(rData->buffer); // Free the buffer
-        free(rData); // Free the remoteData structure
-        close(remoteSocket); // Close the remote socket
-        return ERROR_CLIENT; // TODO definir codigos de error
-    }
-    log(INFO, "Remote socket %d registered with selector for client %d", remoteSocket, clntSocket);
-
     // Prepare the response to send to the client
     response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
     response[1] = 0x00; // Respuesta OK (no error)
@@ -362,9 +407,9 @@ unsigned handleRequestWrite(struct selector_key *key) {
     // Get the local address info for the remote socket
     struct sockaddr_storage localAddr;
     socklen_t localAddrLen = sizeof(localAddr);
-    if (getsockname(remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
+    if (getsockname(data->remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
         log(ERROR, "Failed to get local socket address: %s", strerror(errno));
-        close(remoteSocket);
+        close(data->remoteSocket);
         return ERROR_CLIENT;
     }
 
@@ -391,11 +436,11 @@ unsigned handleRequestWrite(struct selector_key *key) {
         log(INFO, "Bound to local IPv6 address: [%s]:%d", addrStr, ntohs(addr->sin6_port));
     } else {
         log(ERROR, "Unsupported address family: %d", localAddr.ss_family);
-        close(remoteSocket);
+        close(data->remoteSocket);
         return ERROR_CLIENT;
     }
     //send the response to the client
-    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? 10: 22, MSG_DONTWAIT); //fixme: puede ser esto, mandar largo exacto
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         return ERROR_CLIENT; // TODO definir codigos de error
@@ -404,7 +449,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE; // TODO definir codigos de error
     }
-    if (numBytesSent < sizeof(response)) {
+    if (numBytesSent < (localAddr.ss_family == AF_INET ? 10: 22) ) {
         log(INFO, "Partial send: sent %zd bytes, expected %zu bytes", numBytesSent, sizeof(response));
         return REQUEST_WRITE;
     }
@@ -441,6 +486,8 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
+    if ( setupTCPRemoteSocket(&data->destination, key) < 0)
+        return ERROR_CLIENT;
 
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
@@ -470,7 +517,8 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
-
+    if ( setupTCPRemoteSocket(&data->destination, key) < 0)
+        return ERROR_CLIENT;
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
 
@@ -505,6 +553,8 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
+    if ( setupTCPRemoteSocket(&data->destination, key) < 0)
+        return ERROR_CLIENT;
 
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
@@ -595,8 +645,6 @@ int initializeClientData(clientData *data) {
 
     data->clientBuffer = buf;
 
-    data->bufferSize = BUFSIZE;
-    data->bufferOffset = 0;
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
     return 0;
