@@ -12,6 +12,7 @@
 
 #include "../selector.h"
 #include "../buffer.h"
+#include "../metrics/metrics.h"
 
 
 #define MAXPENDING 5 // Maximum outstanding connection requests
@@ -40,6 +41,7 @@ void handleTcpClose(const unsigned state,  struct selector_key *key) {
     } else {
         log(INFO, "Closing client socket %d after completion", clntSocket);
     }
+    metrics_connection_closed();
     free(data->clientBuffer->data);
     free(data->clientBuffer);
     free(data);
@@ -220,6 +222,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
          remoteSock = socket( AF_INET, SOCK_STREAM, 0);
         if (remoteSock < 0) {
             log(ERROR, "socket() failed: %s", strerror(errno));
+            metrics_add_server_error();
             return -1;
         }
         data->remoteSocket = remoteSock; // Store the remote socket in client data
@@ -227,6 +230,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         // Set the socket to non-blocking mode
         if (selector_fd_set_nio(remoteSock) < 0) {
             log(ERROR, "Failed to set remote socket to non-blocking mode: %s", strerror(errno));
+            metrics_add_server_error();
             close(remoteSock);
             return -1;
         }
@@ -235,16 +239,20 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         addr->sin_port = htons(destination->port);
         addr->sin_addr.s_addr = htonl(destination->address.ipv4);
         addrLen = sizeof(struct sockaddr_in);
+        metrics_add_ipv4_connection();
+
     } else if (destination->addressType == IPV6) {
         remoteSock = socket( AF_INET6, SOCK_STREAM, 0);
         if (remoteSock < 0) {
             log(ERROR, "socket() failed: %s", strerror(errno));
+            metrics_add_server_error();
             return -1;
         }
 
         // Set the socket to non-blocking mode
         if (selector_fd_set_nio(remoteSock) < 0) {
             log(ERROR, "Failed to set remote socket to non-blocking mode: %s", strerror(errno));
+            metrics_add_server_error();
             close(remoteSock);
             return -1;
         }
@@ -253,6 +261,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         addr->sin6_port = htons(destination->port);
         memcpy(&addr->sin6_addr, &destination->address.ipv6, sizeof(struct in6_addr));
         addrLen = sizeof(struct sockaddr_in6);
+        metrics_add_ipv6_connection();
     } else if (destination->addressType == DOMAINNAME) {
         struct addrinfo hints = {0}, *res;
         hints.ai_family = AF_UNSPEC; // Allow both IPv4 and IPv6
@@ -265,6 +274,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         const int ret = getaddrinfo(destination->address.domainName, portStr, &hints, &res);
         if (ret != 0) {
             log(ERROR, "getaddrinfo() failed for domain %s: %s", destination->address.domainName, gai_strerror(ret));
+            metrics_add_dns_resolution_error();
             return -1;
         }
 
@@ -278,6 +288,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
 
                 if (selector_fd_set_nio(remoteSock) < 0) {
                     log(ERROR, "Failed to set non-blocking mode: %s", strerror(errno));
+                    metrics_add_server_error();
                     close(remoteSock);
                     remoteSock = -1;
                     continue;
@@ -286,6 +297,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
                 if (connect(remoteSock, p->ai_addr, p->ai_addrlen) < 0) {
                     if (errno != EINPROGRESS) { // Non-blocking connect //TODO check related errors
                         log(ERROR, "connect() failed: %s", strerror(errno));
+                        metrics_add_server_error(); //TODO: Is this a server error?
                         close(remoteSock);
                         return -1;
                     }
@@ -318,10 +330,13 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
             return -1;
         }
 
+        metrics_add_dns_resolution();
         // Free the address info structure
         freeaddrinfo(res);
+
     } else {
         log(ERROR, "Unsupported address type: %d", destination->addressType);
+        metrics_add_unsupported_input();
         close(remoteSock);
         return -1;
     }
@@ -329,6 +344,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
     if (destination->addressType != DOMAINNAME && connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen) < 0) {
         if (errno != EINPROGRESS) { // Non-blocking connect
             log(ERROR, "connect() failed: %s", strerror(errno));
+            metrics_add_server_error(); // TODO: Is this a server error?
             close(remoteSock);
             return -1;
         }
@@ -436,6 +452,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         log(INFO, "Bound to local IPv6 address: [%s]:%d", addrStr, ntohs(addr->sin6_port));
     } else {
         log(ERROR, "Unsupported address family: %d", localAddr.ss_family);
+        metrics_add_unsupported_input();
         close(data->remoteSocket);
         return ERROR_CLIENT;
     }
@@ -443,6 +460,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
     const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? 10: 22, MSG_DONTWAIT); //fixme: puede ser esto, mandar largo exacto
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+        metrics_add_send_error();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
     if (numBytesSent == 0) {
@@ -571,6 +589,7 @@ unsigned handleRequestRead(struct selector_key *key) {
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
+        metrics_add_receive_error();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
     if (numBytesRcvd == 0) {
@@ -582,18 +601,21 @@ unsigned handleRequestRead(struct selector_key *key) {
     const uint8_t socksVersion = buffer_read(data->clientBuffer);
     if (socksVersion != SOCKS_VERSION) {
         log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
+        metrics_add_unsupported_input();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
         // Leer el comando de la solicitud
     const uint8_t command = buffer_read(data->clientBuffer);
     if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
         log(ERROR, "Unsupported command: %d", command);
+        metrics_add_unsupported_input();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
 
     const uint8_t rsv = buffer_read(data->clientBuffer); // Reservado, debe ser 0x00
     if (rsv != RSV) {
         log(ERROR, "Invalid RSV field: %d", rsv);
+        metrics_add_receive_error();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
 
@@ -609,6 +631,7 @@ unsigned handleRequestRead(struct selector_key *key) {
         return handleIPv6RequestRead(key);
     }
     log(ERROR, "Unsupported address type: %d", atyp);
+    metrics_add_unsupported_input();
     return ERROR_CLIENT; // TODO definir codigos de error
 
 }
@@ -693,7 +716,7 @@ void handleMasterRead(struct selector_key *key) {
         close(new_socket);
         return;
     }
-
+    metrics_new_connection(); // Update metrics for new connection
     printf("Client socket %d registered with selector\n", new_socket);
 }
 

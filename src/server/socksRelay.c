@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <string.h>
 
+#include "metrics/metrics.h"
+
 void update_selector_interests(struct selector_key *key, clientData *clientData, int clientFd, int remoteFd) {
     fd_interest client_interest = OP_NOOP;
     fd_interest remote_interest = OP_NOOP;
@@ -49,6 +51,7 @@ unsigned handleRelayClientRead(struct selector_key *key){
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+        metrics_add_receive_error();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
     if (numBytesRcvd == 0) {
@@ -56,6 +59,7 @@ unsigned handleRelayClientRead(struct selector_key *key){
         return DONE; // TODO definir codigos de error
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
+    metrics_add_bytes_client_to_remote(numBytesRcvd);
     log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
 
     if (buffer_can_write(data->remoteBuffer)) {
@@ -89,6 +93,7 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     const ssize_t numBytesSent = send(clntSocket, readPtr, readLimit, MSG_DONTWAIT);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d", clntSocket);
+        metrics_add_send_error();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
     if (numBytesSent == 0) {
@@ -97,6 +102,7 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
+    metrics_add_bytes_remote_to_client(numBytesSent);
 
     update_selector_interests(key, key->data, clntSocket, data->remoteSocket); // Actualizar los intereses del selector
 
@@ -112,6 +118,7 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
     const ssize_t numBytesRcvd = recv(remoteSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on remote socket %d", remoteSocket);
+        metrics_add_receive_error();
         return RELAY_ERROR; // TODO definir codigos de error
     }
     if (numBytesRcvd == 0) {
@@ -120,6 +127,7 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
     }
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     log(INFO, "Received %zd bytes from remote socket %d", numBytesRcvd, remoteSocket);
+    metrics_add_bytes_remote_to_client(numBytesRcvd);
     // Aquí se podría procesar el mensaje recibido del socket remoto
     update_selector_interests(key, data->client, data->client_fd, remoteSocket); // Actualizar los intereses del selector
 
@@ -135,6 +143,7 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, MSG_DONTWAIT);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
+        metrics_add_send_error();
         return RELAY_ERROR; // TODO definir codigos de error
     }
     if (numBytesSent == 0) {
@@ -143,6 +152,7 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     }
     buffer_read_adv(data->client->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Sent %zd bytes to remote socket %d", numBytesSent, remoteSocket);
+    metrics_add_bytes_client_to_remote(numBytesSent);
 
     update_selector_interests(key, data->client, data->client_fd, remoteSocket);
     return RELAY_REMOTE; // Cambiar al estado de lectura de remoto relay

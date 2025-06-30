@@ -17,6 +17,7 @@
 #include <signal.h>
 
 #include "tcpServerUtil.h"
+#include "metrics/metrics.h"
 
 #define TRUE   1
 #define FALSE  0
@@ -27,6 +28,7 @@
 int main()
 {
     // int max_clients = INITIAL_MAX_CLIENTS;
+    metrics_init();
 
     const struct selector_init conf = {
         .signal = SIGUSR1,
@@ -70,6 +72,7 @@ int main()
         {
             printf("select error");
         }
+        metrics_print();
     }
 
     return 0;

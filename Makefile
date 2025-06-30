@@ -16,6 +16,8 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/stm.c \
        $(SRC_DIR)/buffer.c \
        $(SRC_DIR)/server/socksRelay.c \
+       $(SRC_DIR)/metrics/metrics.c \
+
 
 # Source files for the tests
 TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \
@@ -42,8 +44,7 @@ INCLUDES = -I$(SRC_DIR)
 CHECK_FLAGS = $(shell pkg-config --cflags --libs check)
 
 # Ensure the directories exist
-DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/test
-
+DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/test $(OBJ_DIR)/metrics
 .PHONY: all clean test
 
 all: dirs $(BIN_DIR)/$(BIN)
