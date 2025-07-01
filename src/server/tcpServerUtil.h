@@ -78,6 +78,7 @@ typedef struct {
 
   int remoteSocket; // Socket for the remote connection
   buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
+  int responseStatus; // Status of the response to the client
 } clientData;
 
 typedef struct {

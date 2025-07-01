@@ -58,6 +58,7 @@ void clientClose(const unsigned state, struct selector_key *key) {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
+    close(key->fd); // Cerrar el socket del cliente
 }
 void remoteClose(const unsigned state, struct selector_key *key) {
     if (state == RELAY_ERROR) {
@@ -66,6 +67,7 @@ void remoteClose(const unsigned state, struct selector_key *key) {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
+    close(key->fd); // Cerrar el socket remoto
 }
  static const struct state_definition states[] = {
     [HELLO_READ] =    { .state = HELLO_READ, .on_read_ready = handleHelloRead },
@@ -169,6 +171,7 @@ struct state_machine * createRemoteStateMachine() {
     if (remoteBuffer == NULL) {
         log(ERROR, "Failed to allocate memory for remote buffer");
         close(remoteSocket);
+        data->responseStatus = SOCKS5_GENERAL_FAILURE;
         return -1; // TODO definir codigos de error
     }
     remoteBuffer->data = malloc(BUFSIZE); // Allocate memory for the buffer data
@@ -176,6 +179,7 @@ struct state_machine * createRemoteStateMachine() {
         log(ERROR, "Failed to allocate memory for remote buffer data");
         free(remoteBuffer);
         close(remoteSocket);
+        data->responseStatus = SOCKS5_GENERAL_FAILURE;
         return -1; // TODO definir codigos de error
     }
     buffer_init(remoteBuffer, BUFSIZE, remoteBuffer->data); // Initialize the buffer with a size //TODO put this buffer somewhere to read from destination
@@ -185,8 +189,12 @@ struct state_machine * createRemoteStateMachine() {
         free(remoteBuffer->data);
         free(remoteBuffer);
         close(remoteSocket);
+        data->responseStatus = SOCKS5_GENERAL_FAILURE;
         return -1; // TODO definir codigos de error
     }
+
+    log(INFO, "Initializing remote socket %d for client %d", remoteSocket, key->fd);
+
     rData->client_fd = key->fd; // Set the remote socket file descriptor
     rData->client = data; // Set the client data
     rData->buffer = remoteBuffer; // Set the buffer for the remote socket
@@ -204,8 +212,12 @@ struct state_machine * createRemoteStateMachine() {
         free(rData->buffer); // Free the buffer
         free(rData); // Free the remoteData structure
         close(remoteSocket); // Close the remote socket
+        data->responseStatus = SOCKS5_GENERAL_FAILURE;
         return -1; // TODO definir codigos de error
     }
+
+    log(INFO, "Remote socket %d initialized and registered with selector for client %d", remoteSocket, key->fd);
+
     return 0;
 }
 int setRemoteAddress(const int remoteSocket,remoteData *rData) {
@@ -221,6 +233,36 @@ int setRemoteAddress(const int remoteSocket,remoteData *rData) {
     return 0;
 }
 
+void setResponseStatus(clientData *data, int error) {
+    switch (error) {
+        case EACCES:
+        log(ERROR, "Connection not allowed for remote address: %s", strerror(errno));
+            data->responseStatus = SOCKS5_CONNECTION_NOT_ALLOWED;
+            break;
+        case ENETUNREACH:
+        log(ERROR, "Network unreachable for remote address: %s", strerror(errno));
+            data->responseStatus = SOCKS5_NETWORK_UNREACHABLE;
+            break;
+        case EHOSTDOWN:
+        case EHOSTUNREACH:
+        log(ERROR, "Host unreachable or host down for remote address: %s", strerror(errno));
+            data->responseStatus = SOCKS5_HOST_UNREACHABLE;
+            break;
+        case ECONNREFUSED:
+        log(ERROR, "Connection refused for remote address: %s", strerror(errno));
+            data->responseStatus = SOCKS5_CONNECTION_REFUSED;
+            break;
+        case ETIMEDOUT:
+        log(ERROR, "Connection timed out for remote address: %s", strerror(errno));
+            data->responseStatus = SOCKS5_TTL_EXPIRED;
+            break;
+        default:
+        log(ERROR, "Unhandled connect error: %s", strerror(errno));
+            data->responseStatus = SOCKS5_GENERAL_FAILURE; // Default error code TODO is this right?
+            break;
+    }
+}
+
 int setupTCPRemoteSocket(const struct destination_info *destination,  struct selector_key * key) {
     clientData *data = key->data; // Get the client data from the key
     int remoteSock = -1;
@@ -232,6 +274,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
          remoteSock = socket( AF_INET, SOCK_STREAM, 0);
         if (remoteSock < 0) {
             log(ERROR, "socket() failed: %s", strerror(errno));
+            data->responseStatus = SOCKS5_GENERAL_FAILURE;
             return -1;
         }
         data->remoteSocket = remoteSock; // Store the remote socket in client data
@@ -240,6 +283,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         if (selector_fd_set_nio(remoteSock) < 0) {
             log(ERROR, "Failed to set remote socket to non-blocking mode: %s", strerror(errno));
             close(remoteSock);
+            data->responseStatus = SOCKS5_GENERAL_FAILURE;
             return -1;
         }
         struct sockaddr_in *addr = (struct sockaddr_in *) &remoteAddr;
@@ -251,6 +295,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         remoteSock = socket( AF_INET6, SOCK_STREAM, 0);
         if (remoteSock < 0) {
             log(ERROR, "socket() failed: %s", strerror(errno));
+            data->responseStatus = SOCKS5_GENERAL_FAILURE;
             return -1;
         }
 
@@ -258,6 +303,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         if (selector_fd_set_nio(remoteSock) < 0) {
             log(ERROR, "Failed to set remote socket to non-blocking mode: %s", strerror(errno));
             close(remoteSock);
+            data->responseStatus = SOCKS5_GENERAL_FAILURE;
             return -1;
         }
         struct sockaddr_in6 *addr = (struct sockaddr_in6 *) &remoteAddr;
@@ -277,14 +323,17 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         const int ret = getaddrinfo(destination->address.domainName, portStr, &hints, &res);
         if (ret != 0) {
             log(ERROR, "getaddrinfo() failed for domain %s: %s", destination->address.domainName, gai_strerror(ret));
+            data->responseStatus = SOCKS5_HOST_UNREACHABLE; // TODO is this ok? chatgpt me dijo q si
             return -1;
         }
+
 
         for (const struct addrinfo *p = res; p != NULL; p = p->ai_next) {
             // Try to use the address
             if (p->ai_family == AF_INET || p->ai_family == AF_INET6) {
                 remoteSock = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
                 if (remoteSock == -1) {
+                    data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
                     continue; // Intentá con la siguiente dirección
                 }
 
@@ -292,6 +341,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
                     log(ERROR, "Failed to set non-blocking mode: %s", strerror(errno));
                     close(remoteSock);
                     remoteSock = -1;
+                    data->responseStatus = SOCKS5_GENERAL_FAILURE;
                     continue;
                 }
 
@@ -299,6 +349,8 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
                     if (errno != EINPROGRESS) { // Non-blocking connect //TODO check related errors
                         log(ERROR, "connect() failed: %s", strerror(errno));
                         close(remoteSock);
+                        remoteSock = -1; // Reset remoteSock to indicate failure
+                        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
                         continue;
                     }
                     if (remoteSocketInit(remoteSock, key, p->ai_next) < 0 )
@@ -341,11 +393,15 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
         if (errno != EINPROGRESS) { // Non-blocking connect
             log(ERROR, "connect() failed: %s", strerror(errno));
             close(remoteSock);
+            int error = errno;
+            setResponseStatus(data, error); // Set the appropriate response status based on the error
             return -1;
         }
         log(INFO, "connect() in progress for remote address");
-        if (remoteSocketInit(remoteSock, key, NULL) < 0 )
+        if (remoteSocketInit(remoteSock, key, NULL) < 0 ) {
+            log(ERROR, "Failed to initialize remote socket");
             return -1; // Initialize the remote socket
+        }
         selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
         return remoteSock;
     }
@@ -385,19 +441,23 @@ unsigned connectWrite(struct selector_key * key) {
         socklen_t len = sizeof(error);
         if ( getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
             log(ERROR, "getsockopt() failed: %s", strerror(errno));
+            data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+            selector_set_interest(key->s,data->client_fd, OP_WRITE);
             return RELAY_ERROR; // TODO definir codigos de error
         }
 
         if (error != 0) { //TODO: revisar pero parece funcionar, deberia cerrar el socket anterior?
             log(ERROR, "Connection error on remote socket %d: %s",key->fd , strerror(error));
+            setResponseStatus(data->client, error);
 
             int newRemoteSocket = -1;
 
-            for (struct addrinfo *addr = data->remoteAddrInfo; addr != NULL; addr = addr->ai_next) {
+            for (struct addrinfo *addr = data->remoteAddrInfo; addr != NULL; addr = addr->ai_next) { //TODO this for loop could use modularization, repeated code in setupRemoteTCPSocket
                 log(INFO, "Trying next address: %s", printAddressPort(addr, addrBuffer));
                 newRemoteSocket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
                 if (newRemoteSocket < 0) {
                     log(ERROR, "Failed to create socket for address %s: %s", addrBuffer, strerror(errno));
+                    data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
                     continue;
                 }
 
@@ -405,6 +465,7 @@ unsigned connectWrite(struct selector_key * key) {
                     log(ERROR, "Failed to set non-blocking mode for address %s: %s", addrBuffer, strerror(errno));
                     close(newRemoteSocket);
                     newRemoteSocket = -1; // Reset to indicate failure
+                    data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
                     continue;
                 }
 
@@ -413,30 +474,51 @@ unsigned connectWrite(struct selector_key * key) {
                         log(ERROR, "connect() failed for address %s: %s", addrBuffer, strerror(errno));
                         close(newRemoteSocket);
                         newRemoteSocket = -1; // Reset to indicate failure
+
+                        int connectError = errno;
+                        setResponseStatus(data->client, connectError); // Set the appropriate response status based on the error
+
                         continue;
                     }
                 }
 
                 // Successfully connected to a new address
                 if (remoteSocketInit(newRemoteSocket, key, addr->ai_next) < 0) {
-                    return RELAY_ERROR; // TODO definir codigos de error, deberia mandar continue?
+                    log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
+                    close(newRemoteSocket);
+                    newRemoteSocket = -1;
+                    data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+                    continue;
                 }
-                setRemoteAddress(newRemoteSocket, data); // Set the remote address in remoteData
                 selector_set_interest_key(key, OP_NOOP); // Set interest to write for the remote socket
                 return RELAY_CONNECTING; // Change to the connecting state
             }
 
-
+            selector_set_interest(key->s, data->client_fd, OP_WRITE); // Set interest to write for the client socket
             return RELAY_ERROR;
         }
+        log(INFO, "Connection established for client socket %d", key->fd);
         data->connectionReady = 1;
     }
-    setRemoteAddress(key->fd, data); // Set the remote address in remoteData
+    setRemoteAddress(key->fd, data); // Set the remote address in remoteData TODO handle error?
+    data->client->responseStatus = SOCKS5_SUCCEEDED; // Set response status to success
     selector_set_interest(key->s,data->client_fd, OP_WRITE);
     selector_set_interest(key->s, key->fd, OP_NOOP);
     return RELAY_REMOTE; // Change to the relay remote state
 
 }
+void sendFailureResponse(int clntSocket, char *response) {
+    response[3] = IPV4; // Address type (0 for IPv4)
+    ssize_t numBytesSent = send(clntSocket, response, 10, MSG_DONTWAIT); // Send the failure response TODO magic number, yay
+    if (numBytesSent < 0) {
+        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+    } else if (numBytesSent == 0) {
+        log(INFO, "Client socket %d closed connection", clntSocket);
+    } else {
+        log(INFO, "Sent failure response to client socket %d", clntSocket);
+    }
+}
+
 
 unsigned handleRequestWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
@@ -449,16 +531,22 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
     // Prepare the response to send to the client
     response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
-    response[1] = SOCKS5_SUCCEEDED; // Respuesta OK (no error)
     response[2] = RSV; // Reservado, debe ser 0x00
 
     // Get the local address info for the remote socket
     struct sockaddr_storage localAddr;
     socklen_t localAddrLen = sizeof(localAddr);
-    if (getsockname(data->remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
+    if (data->responseStatus == SOCKS5_SUCCEEDED && getsockname(data->remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
         log(ERROR, "Failed to get local socket address: %s", strerror(errno));
-        close(data->remoteSocket);
-        return ERROR_CLIENT;
+        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+    }
+
+    response[1] = data->responseStatus; // Respuesta OK (no error)
+
+    if (data->responseStatus != SOCKS5_SUCCEEDED) {
+        log(ERROR, "Connection failed with status: %d", response[1]);
+        sendFailureResponse(clntSocket, response); // Send failure response to client
+        return ERROR_CLIENT; // TODO definir codigos de error
     }
 
     // Fill the response with the bound address and port that the client should use
@@ -482,11 +570,11 @@ unsigned handleRequestWrite(struct selector_key *key) {
         char addrStr[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &(addr->sin6_addr), addrStr, sizeof(addrStr));
         log(INFO, "Bound to local IPv6 address: [%s]:%d", addrStr, ntohs(addr->sin6_port));
-    } else {
+    } else { //todo this should not be possible, ostrich algorithm ftw
         log(ERROR, "Unsupported address family: %d", localAddr.ss_family);
-        close(data->remoteSocket);
         return ERROR_CLIENT;
     }
+
     //send the response to the client
     const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? 10: 22, MSG_DONTWAIT); //fixme: puede ser esto, mandar largo exacto
     if (numBytesSent < 0) {
@@ -534,8 +622,10 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
-    if ( setupTCPRemoteSocket(&data->destination, key) < 0)
-        return ERROR_CLIENT;
+
+    if ( setupTCPRemoteSocket(&data->destination, key) < 0) {
+        selector_set_interest_key(key, OP_WRITE); //TODO capaz no necesario pero por las dudas
+    }
 
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
@@ -565,8 +655,11 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
-    if ( setupTCPRemoteSocket(&data->destination, key) < 0)
-        return ERROR_CLIENT;
+
+    if ( setupTCPRemoteSocket(&data->destination, key) < 0) {
+        selector_set_interest_key(key, OP_WRITE); //TODO capaz no necesario pero por las dudas
+    }
+
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
 
@@ -601,8 +694,10 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
-    if ( setupTCPRemoteSocket(&data->destination, key) < 0)
-        return ERROR_CLIENT;
+
+    if ( setupTCPRemoteSocket(&data->destination, key) < 0) {
+        selector_set_interest_key(key, OP_WRITE); //TODO capaz no necesario pero por las dudas
+    }
 
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
@@ -626,23 +721,32 @@ unsigned handleRequestRead(struct selector_key *key) {
         return DONE; // TODO definir codigos de error
     }
     log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
+
+    data->responseStatus = SOCKS5_SUCCEEDED; // Inicializar el estado de respuesta como éxito
+
     // Procesar la solicitud del cliente
     const uint8_t socksVersion = buffer_read(data->clientBuffer);
     if (socksVersion != SOCKS_VERSION) {
         log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
-        return ERROR_CLIENT; // TODO definir codigos de error
+        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set error status
+        selector_set_interest_key(key, OP_WRITE); // Set interest to write for the client socket
+        return REQUEST_WRITE;
     }
         // Leer el comando de la solicitud
     const uint8_t command = buffer_read(data->clientBuffer);
     if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
         log(ERROR, "Unsupported command: %d", command);
-        return ERROR_CLIENT; // TODO definir codigos de error
+        data->responseStatus = SOCKS5_COMMAND_NOT_SUPPORTED; // Set error status
+        selector_set_interest_key(key, OP_WRITE); // Set interest to write for the client socket
+        return REQUEST_WRITE;
     }
 
     const uint8_t rsv = buffer_read(data->clientBuffer); // Reservado, debe ser 0x00
     if (rsv != RSV) {
         log(ERROR, "Invalid RSV field: %d", rsv);
-        return ERROR_CLIENT; // TODO definir codigos de error
+        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set error status
+        selector_set_interest_key(key, OP_WRITE); // Set interest to write for the client socket
+        return REQUEST_WRITE;
     }
 
         // Leer el tipo de dirección
@@ -657,7 +761,9 @@ unsigned handleRequestRead(struct selector_key *key) {
         return handleIPv6RequestRead(key);
     }
     log(ERROR, "Unsupported address type: %d", atyp);
-    return ERROR_CLIENT; // TODO definir codigos de error
+    data->responseStatus = SOCKS5_ADDRESS_TYPE_NOT_SUPPORTED; // Set error status
+    selector_set_interest_key(key, OP_WRITE); // Set interest to write for the client socket
+    return REQUEST_WRITE;
 
 }
 
