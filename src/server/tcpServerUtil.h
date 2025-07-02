@@ -31,6 +31,7 @@ enum socks5_response_status {
 };
 
 
+
 enum socks5_states {
   HELLO_READ,
   HELLO_WRITE,
