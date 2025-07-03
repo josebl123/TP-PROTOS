@@ -25,10 +25,26 @@
 #define INITIAL_MAX_CLIENTS 30
 #define MAX_BUFFER_SIZE 1024
 
+struct fdselector *selector = NULL; // Global selector variable
+
+void cleanup(const int signum) {
+    // Handle cleanup on signal
+    printf("Received signal %d, cleaning up...\n", signum);
+    selector_destroy(selector);
+    exit(EXIT_SUCCESS);
+}
+
 int main()
 {
     // int max_clients = INITIAL_MAX_CLIENTS;
     metrics_init();
+    struct sigaction sa;
+    sa.sa_handler = cleanup;
+    sa.sa_flags = 0;
+    sigemptyset(&sa.sa_mask);
+
+    sigaction(SIGINT, &sa, NULL);  // Ctrl+C
+    sigaction(SIGTERM, &sa, NULL); // kill normal
 
     const struct selector_init conf = {
         .signal = SIGUSR1,
@@ -40,7 +56,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    fd_selector selector = selector_new(INITIAL_MAX_CLIENTS);
+    selector = selector_new(INITIAL_MAX_CLIENTS);
 
     if (selector == NULL) {
         perror("Failed to create selector");
@@ -55,6 +71,7 @@ int main()
 
     selector_register(selector, master_socket, &(fd_handler){
         .handle_read =  handleMasterRead, // funcion para crear sockets activos
+        .handle_close = handleMasterClose,
     }, OP_READ, NULL);
 
     if (selector_fd_set_nio(master_socket) == -1) {

@@ -36,15 +36,23 @@ unsigned handleHelloRead(struct selector_key *key) {
         log(INFO, "Total methods: %d", totalAuthMethods); //sumo 1 porque es el segundo byte del saludo
       if( socksVersion == SOCKS_VERSION ){ //chequea que sea SOCKS5
         for(int i =0; i < totalAuthMethods; i++){
-          if(buffer_read(data->clientBuffer) == AUTH_METHOD_PASSWORD){
+            int authMethod = buffer_read(data->clientBuffer); // Lee el método de autenticación
+          if(authMethod == AUTH_METHOD_PASSWORD){
 			data->authMethod = AUTH_METHOD_PASSWORD;
             selector_set_interest_key(key, OP_WRITE);
             log(INFO, "Selected authentication method: Password");
             buffer_reset(data->clientBuffer);
             return HELLO_WRITE; // Cambiar al estado de escritura de saludo
+          } else if (authMethod == AUTH_METHOD_NOAUTH) {
+            data->authMethod = AUTH_METHOD_NOAUTH;
+            log(INFO, "Selected authentication method: No Authentication");
+            buffer_reset(data->clientBuffer);
+            selector_set_interest_key(key, OP_WRITE);
+            return HELLO_WRITE; // Cambiar al estado de escritura de saludo
           }
         }
         log(ERROR, "Unsupported authentication method or incomplete data");
+        data->authMethod = NO_ACCEPTABLE_METHODS;
         return HELLO_WRITE;
       }
         return ERROR_CLIENT; // TODO definir codigos de error
@@ -74,7 +82,16 @@ unsigned handleHelloWrite(struct selector_key *key) {
     if ( sizeof(response) == numBytesSent) {
         selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir autenticación
         log(INFO, "Sent hello response to client socket %d", clntSocket);
-        return AUTH_READ;
+        if (data->authMethod == AUTH_METHOD_NOAUTH) {
+            log(INFO, "No authentication required, moving to request read state");
+            return REQUEST_READ; // Si no se requiere autenticación, pasar al estado de lectura de solicitud
+        } else if (data->authMethod == AUTH_METHOD_PASSWORD) {
+            log(INFO, "Selected authentication method: Password, moving to auth method subnegotiation");
+            return AUTH_READ;
+        } else {
+            log(INFO, "No acceptable method for auth, moving back to hello read");
+            return HELLO_READ;
+        }
     }
     log(INFO, "Sent %zd bytes of hello response to client socket %d", numBytesSent, clntSocket);
     return HELLO_WRITE; // Mantener el estado de escritura de saludo
