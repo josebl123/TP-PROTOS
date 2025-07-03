@@ -70,20 +70,6 @@ void metrics_add_unsupported_input(void) {
     metrics.unsupported_input++;
 }
 
-void metrics_print(void) {
-    printf("Total Connections: %zu\n", metrics.total_connections);
-    printf("Current Connections: %zu\n", metrics.current_connections);
-    printf("Bytes Client to Remote: %zu\n", metrics.bytes_client_to_remote);
-    printf("Bytes Remote to Client: %zu\n", metrics.bytes_remote_to_client);
-    printf("DNS Resolutions Connections: %zu\n", metrics.dns_resolutions_connections);
-    printf("Send Errors: %zu\n", metrics.send_errors);
-    printf("Receive Errors: %zu\n", metrics.receive_errors);
-    printf("DNS Resolution Errors: %zu\n", metrics.dns_resolution_errors);
-    printf("IPv4 Connections: %zu\n", metrics.ipv4_connections);
-    printf("IPv6 Connections: %zu\n", metrics.ipv6_connections);
-    printf("Server Errors: %zu\n", metrics.server_errors);
-    printf("Unsupported Input: %zu\n", metrics.unsupported_input);
-}
 
 
 

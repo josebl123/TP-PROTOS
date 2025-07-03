@@ -21,7 +21,6 @@ typedef struct {
 
 extern Metrics metrics;
 
-//TODO: Agregar un reseteo de las métricas
 
 void metrics_init(void);
 void metrics_new_connection(void);
@@ -36,7 +35,6 @@ void metrics_add_ipv4_connection(void);
 void metrics_add_ipv6_connection(void);
 void metrics_add_server_error(void);
 void metrics_add_unsupported_input(void);
-void metrics_print(void);
 
 
 #endif

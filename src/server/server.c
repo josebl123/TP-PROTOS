@@ -72,7 +72,6 @@ int main()
         {
             printf("select error");
         }
-        metrics_print();
     }
 
     return 0;
