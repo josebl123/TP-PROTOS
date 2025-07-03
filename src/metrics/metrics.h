@@ -1,8 +1,8 @@
 #ifndef METRICS_H
 #define METRICS_H
 
-#include <stdint.h>
 #include <stddef.h>
+#include "rbt.h"
 
 typedef struct {
     uint64_t total_connections;
@@ -13,14 +13,20 @@ typedef struct {
     uint64_t receive_errors;
     uint64_t dns_resolution_errors;
     uint64_t server_errors;
-    uint64_t unsupported_input;;
+    uint64_t unsupported_input;
     uint64_t dns_resolutions_connections;
     uint64_t ipv4_connections;
     uint64_t ipv6_connections;
 } Metrics;
 
-extern Metrics metrics;
+typedef struct {
+    user_connection_tree connections_tree;  // Red-Black Tree de conexiones
+    uint64_t total_connections;
+    uint64_t total_bytes_sent;
+    uint64_t total_bytes_received;
+} user_metrics;
 
+extern Metrics metrics;
 
 void metrics_init(void);
 void metrics_new_connection(void);
@@ -36,5 +42,8 @@ void metrics_add_ipv6_connection(void);
 void metrics_add_server_error(void);
 void metrics_add_unsupported_input(void);
 
+void user_metrics_init(user_metrics* um);
+void user_metrics_add_connection(user_metrics* um, const user_connection* new_conn_data);
+void user_metrics_free(user_metrics* um);
 
-#endif
+#endif // METRICS_H
