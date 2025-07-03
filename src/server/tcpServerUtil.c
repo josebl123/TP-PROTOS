@@ -583,7 +583,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE; // TODO definir codigos de error
     }
-    if (numBytesSent < (localAddr.ss_family == AF_INET ? 10: 22) ) {
+    if (numBytesSent < (localAddr.ss_family == AF_INET ? 10: 22) ) { //todo magic numbers, yay
         log(INFO, "Partial send: sent %zd bytes, expected %zu bytes", numBytesSent, sizeof(response));
         return REQUEST_WRITE;
     }
