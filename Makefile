@@ -13,10 +13,14 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/server/socksAuth.c \
        $(SRC_DIR)/utils/util.c \
        $(SRC_DIR)/utils/logger.c \
+       $(SRC_DIR)/utils/rbt.c \
        $(SRC_DIR)/stm.c \
        $(SRC_DIR)/buffer.c \
        $(SRC_DIR)/server/socksRelay.c \
        $(SRC_DIR)/metrics/metrics.c \
+       $(SRC_DIR)/server/tcpServerConfigUtil.c \
+
+
 
 
 # Source files for the tests

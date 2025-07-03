@@ -24,11 +24,12 @@ typedef struct user_connection {
     time_t access_time;
     ip_address ip_origin;
     ip_address ip_destination;
+    char * destination_name;
     uint16_t port_origin;
     uint16_t port_destination;
     uint64_t bytes_sent;
     uint64_t bytes_received;
-    error_type error_type;
+    error_type status;
 } user_connection;
 
 typedef enum { RED, BLACK } Color;

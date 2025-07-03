@@ -18,10 +18,12 @@
 
 #include "tcpServerUtil.h"
 #include "metrics/metrics.h"
+#include "tcpServerConfigUtil.h"
 
 #define TRUE   1
 #define FALSE  0
 #define PORT "1080"
+#define CONFIG_PORT "8080"
 #define INITIAL_MAX_CLIENTS 30
 #define MAX_BUFFER_SIZE 1024
 
@@ -77,6 +79,22 @@ int main()
     if (selector_fd_set_nio(master_socket) == -1) {
         close(master_socket);
         perror("Failed to set master socket to non-blocking mode");
+        exit(EXIT_FAILURE);
+    } // para que no bloquee
+
+    const int master_socket_config = setupTCPServerSocket(CONFIG_PORT);
+    if (master_socket_config < 0) {
+        perror("Failed to setup TCP server socket for config");
+        exit(EXIT_FAILURE);
+    }
+    selector_register(selector, master_socket_config, &(fd_handler){
+        .handle_read = handleConfigRead, // funcion para crear sockets activos
+        .handle_close = handleConfigClose,
+    }, OP_READ, NULL);
+
+    if (selector_fd_set_nio(master_socket_config) == -1) {
+        close(master_socket_config);
+        perror("Failed to set master socket config to non-blocking mode");
         exit(EXIT_FAILURE);
     } // para que no bloquee
 
