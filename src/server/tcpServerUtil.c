@@ -88,7 +88,7 @@ static const struct state_definition relay_states[] = {
     [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = remoteClose },
 };
 
- static const fd_handler client_handler = {
+static const fd_handler client_handler = {
     .handle_read = socks5_read, // Initial read handler
     .handle_write = socks5_write, // Initial write handler
     .handle_block = NULL, // Not used in this case
@@ -102,16 +102,19 @@ static const fd_handler relay_handler = {
 };
 
 
-int setupTCPServerSocket(const char *service) {
+int setupTCPServerSocket(const char *ip, const int port) {
     // Construct the server address structure
     struct addrinfo addrCriteria = {0};                   // Criteria for address match
     addrCriteria.ai_family = AF_UNSPEC;             // Any address family
-    addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
+    // addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
     addrCriteria.ai_socktype = SOCK_STREAM;         // Only stream sockets
     addrCriteria.ai_protocol = IPPROTO_TCP;         // Only TCP protocol
+    // Convertir el puerto a string
+    char portStr[6];   // Máx: 65535 + null
+    snprintf(portStr, sizeof(portStr), "%d", port);
 
     struct addrinfo *servAddr; 			// List of server addresses
-    const int rtnVal = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
+    const int rtnVal = getaddrinfo(ip, portStr, &addrCriteria, &servAddr);
     if (rtnVal != 0) {
         log(FATAL, "getaddrinfo() failed %s", gai_strerror(rtnVal));
         return -1;
@@ -870,7 +873,6 @@ void socks5_relay_close(struct selector_key *key) {
 void socks5_relay_read(struct selector_key *key) {
     const remoteData *rData = key->data;
     if (rData != NULL && rData->stm != NULL) {
-        log(INFO, "Reading from remote socket %d for client %d", key->fd, rData->client_fd);
         stm_handler_read(rData->stm, key); // Read data from the remote socket
     }
 }
@@ -878,7 +880,6 @@ void socks5_relay_read(struct selector_key *key) {
 void socks5_relay_write(struct selector_key *key) {
     const remoteData *rData = key->data;
     if (rData != NULL && rData->stm != NULL) {
-        log(INFO, "Writing to remote socket %d for client %d", key->fd, rData->client_fd);
         stm_handler_write(rData->stm, key); // Write data to the remote socket
     }
 }

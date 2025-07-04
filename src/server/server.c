@@ -17,24 +17,29 @@
 #include <signal.h>
 
 #include "tcpServerUtil.h"
+#include "utils/args.h"
 
 #define TRUE   1
 #define FALSE  0
-#define PORT "1080"
 #define INITIAL_MAX_CLIENTS 30
 #define MAX_BUFFER_SIZE 1024
 
 struct fdselector *selector = NULL; // Global selector variable
-
+struct socks5args *socksArgs = NULL; // Global args variable
 void cleanup(const int signum) {
     // Handle cleanup on signal
     printf("Received signal %d, cleaning up...\n", signum);
     selector_destroy(selector);
+    if (socksArgs != NULL) {
+        free(socksArgs);
+    }
     exit(EXIT_SUCCESS);
 }
 
-int main()
+int main(int argc, char *argv[])
 {
+    socksArgs = malloc(sizeof(struct socks5args));
+    parse_args(argc, argv, socksArgs); // Parse command line arguments
     // int max_clients = INITIAL_MAX_CLIENTS;
     struct sigaction sa;
     sa.sa_handler = cleanup;
@@ -61,7 +66,7 @@ int main()
         exit(EXIT_FAILURE);
     }
 
-    const int master_socket = setupTCPServerSocket(PORT);
+    const int master_socket = setupTCPServerSocket( socksArgs->socks_addr, socksArgs->socks_port);
     if (master_socket < 0) {
         perror("Failed to setup TCP server socket");
         exit(EXIT_FAILURE);

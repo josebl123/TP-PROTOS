@@ -16,6 +16,7 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/stm.c \
        $(SRC_DIR)/buffer.c \
        $(SRC_DIR)/server/socksRelay.c \
+       $(SRC_DIR)/utils/args.c \
 
 # Source files for the tests
 TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \

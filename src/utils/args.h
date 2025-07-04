@@ -4,6 +4,11 @@
 #include <stdbool.h>
 
 #define MAX_USERS 10
+#define DEFAULT_SOCKS_ADDR "0.0.0.0"
+#define DEFAULT_SOCKS_PORT 1080
+#define DEFAULT_MNG_ADDR "127.0.0.1"
+#define DEFAULT_MNG_PORT 8080
+
 
 struct users
 {
