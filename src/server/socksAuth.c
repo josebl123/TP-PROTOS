@@ -10,11 +10,15 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <stdint.h>
+#include "utils/user_metrics_table.h"
+#include <time.h>
+#include "../metrics/metrics.h"
+#include <arpa/inet.h>
 
 
 unsigned handleHelloRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de saludo del cliente
-      int clntSocket = key->fd; // Socket del cliente
+    int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
     log(INFO, "hello Read");
     // Recibir mensaje del cliente
@@ -22,40 +26,44 @@ unsigned handleHelloRead(struct selector_key *key) {
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
-
+    bool acceptsNoAuth = false;
     if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
     }
-     if (numBytesRcvd == 0) {
+    if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
-      const uint8_t socksVersion = buffer_read(data->clientBuffer);
-      const uint8_t totalAuthMethods = buffer_read(data->clientBuffer);
-        log(INFO, "Total methods: %d", totalAuthMethods); //sumo 1 porque es el segundo byte del saludo
-      if( socksVersion == SOCKS_VERSION ){ //chequea que sea SOCKS5
+    const uint8_t socksVersion = buffer_read(data->clientBuffer);
+    const uint8_t totalAuthMethods = buffer_read(data->clientBuffer);
+    log(INFO, "Total methods: %d", totalAuthMethods); //sumo 1 porque es el segundo byte del saludo
+    if( socksVersion == SOCKS_VERSION ){ //chequea que sea SOCKS5
         for(int i =0; i < totalAuthMethods; i++){
-            int authMethod = buffer_read(data->clientBuffer); // Lee el método de autenticación
-          if(authMethod == AUTH_METHOD_PASSWORD){
-			data->authMethod = AUTH_METHOD_PASSWORD;
-            selector_set_interest_key(key, OP_WRITE);
-            log(INFO, "Selected authentication method: Password");
-            buffer_reset(data->clientBuffer);
-            return HELLO_WRITE; // Cambiar al estado de escritura de saludo
-          } else if (authMethod == AUTH_METHOD_NOAUTH) {
+            const int authMethod = buffer_read(data->clientBuffer); // Lee el método de autenticación
+            if(authMethod == AUTH_METHOD_PASSWORD){
+			    data->authMethod = AUTH_METHOD_PASSWORD;
+                selector_set_interest_key(key, OP_WRITE);
+                log(INFO, "Selected authentication method: Password");
+                buffer_reset(data->clientBuffer);
+                return HELLO_WRITE; // Cambiar al estado de escritura de saludo
+            }
+            if (authMethod == AUTH_METHOD_NOAUTH) {
+                acceptsNoAuth = true; // Si acepta autenticación sin contraseña
+            }
+        }
+        if (acceptsNoAuth) {
             data->authMethod = AUTH_METHOD_NOAUTH;
             log(INFO, "Selected authentication method: No Authentication");
             buffer_reset(data->clientBuffer);
             selector_set_interest_key(key, OP_WRITE);
             return HELLO_WRITE; // Cambiar al estado de escritura de saludo
-          }
         }
         log(ERROR, "Unsupported authentication method or incomplete data");
         data->authMethod = NO_ACCEPTABLE_METHODS;
         return HELLO_WRITE;
       }
-        return ERROR_CLIENT; // TODO definir codigos de error
+    return ERROR_CLIENT; // TODO definir codigos de error
 
 
 }
@@ -156,6 +164,7 @@ unsigned handleAuthWrite(struct selector_key *key) {
     char response[2] = {SOCKS_VERSION, 1}; // Respuesta de autenticación exitosa FIXME: magic num
     if( strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "pass") == 0) {
         response[1] = 0; // Autenticación exitosa
+        get_or_create_user_metrics(data->authInfo.username);
     }
     const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
 
@@ -185,5 +194,9 @@ unsigned handleAuthWrite(struct selector_key *key) {
         return REQUEST_READ;
     }
     buffer_read_adv(data->clientBuffer, numBytesSent);
+    data->current_user_conn.access_time = time(NULL);
+    data->current_user_conn.port_origin = data->origin.port;
+    fill_ip_address_from_origin(&data->current_user_conn.ip_origin, &data->origin);
+
     return AUTH_WRITE;
 }

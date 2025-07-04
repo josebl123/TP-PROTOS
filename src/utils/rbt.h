@@ -2,6 +2,8 @@
 #define RBT_H
 
 #include <netinet/in.h>
+#include <stdio.h>
+
 
 typedef enum {
     NO_ERROR,
@@ -50,5 +52,6 @@ void rbt_insert(user_connection_tree* tree, user_connection conn);
 void rbt_free(rbt_node* node);
 rbt_node* rbt_search(rbt_node* node, time_t access_time);
 void rbt_inorder(rbt_node* node);
+void print_rbt_inorder(FILE *out, const char *username, rbt_node *node);
 
 #endif // RBT_H

@@ -19,6 +19,8 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/server/socksRelay.c \
        $(SRC_DIR)/metrics/metrics.c \
        $(SRC_DIR)/server/tcpServerConfigUtil.c \
+       $(SRC_DIR)/utils/user_metrics_table.c \
+
 
 
 

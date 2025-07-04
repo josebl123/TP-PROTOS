@@ -19,6 +19,7 @@
 #include "tcpServerUtil.h"
 #include "metrics/metrics.h"
 #include "tcpServerConfigUtil.h"
+#include "utils/user_metrics_table.h"
 
 #define TRUE   1
 #define FALSE  0
@@ -40,6 +41,7 @@ int main()
 {
     // int max_clients = INITIAL_MAX_CLIENTS;
     metrics_init();
+    init_user_metrics_table();  // <- Agregá esta línea
     struct sigaction sa;
     sa.sa_handler = cleanup;
     sa.sa_flags = 0;

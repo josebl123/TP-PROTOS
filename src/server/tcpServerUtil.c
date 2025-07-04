@@ -13,6 +13,8 @@
 #include "../selector.h"
 #include "../buffer.h"
 #include "../metrics/metrics.h"
+#include "../utils/user_metrics_table.h"
+#include <time.h>
 
 
 #define MAXPENDING 5 // Maximum outstanding connection requests
@@ -34,6 +36,12 @@ static char addrBuffer[MAX_ADDR_BUFFER];
 void handleTcpClose(  struct selector_key *key) {
     log(INFO, "Closing client socket %d", key->fd);
     clientData *data =  key->data;
+    data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
+    user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
+
+    // Suponiendo que tenés el user_metrics del cliente:
+    user_metrics_add_connection(user_metrics, &data->current_user_conn);
+
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
 
     free(data->clientBuffer->data);
@@ -59,6 +67,30 @@ void clientClose(const unsigned state, struct selector_key *key) {
     } else {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
+    clientData *data =  key->data;
+    data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
+    log(INFO, "USER: %s", data->authInfo.username);
+    user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
+
+    char time_str[64];
+    struct tm tm_info;
+    localtime_r(&data->current_user_conn.access_time, &tm_info);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
+
+    log(INFO, "Saving user connection: status=%d, bytes_sent=%lu, bytes_received=%lu, port_origin=%u, port_destination=%u, destination_name=%s, access_time=%s",
+        data->current_user_conn.status,
+        data->current_user_conn.bytes_sent,
+        data->current_user_conn.bytes_received,
+        data->current_user_conn.port_origin,
+        data->current_user_conn.port_destination,
+        data->current_user_conn.destination_name ? data->current_user_conn.destination_name : "NULL",
+        time_str
+    );
+
+    //TODO: ESTO ESTA MAL, SI SE CIERRA MAL NO DEBERIA IR CON STATUS 0;
+
+    // Suponiendo que tenés el user_metrics del cliente:
+    user_metrics_add_connection(user_metrics, &data->current_user_conn);
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
     close(key->fd); // Cerrar el socket del cliente
 }
@@ -633,6 +665,15 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
     data->destination.address.domainName[sizeof(data->destination.address.domainName) - 1] = '\0'; // Asegurar que esté terminado en nulo
     data->destination.port = port; // Guardar el puerto
 
+    data->current_user_conn.ip_destination.is_ipv6 = 0; // No es IPv6 si es domain name
+
+    if (data->current_user_conn.destination_name) {
+        free(data->current_user_conn.destination_name);
+    }
+    data->current_user_conn.destination_name = strdup(domainName);
+
+    data->current_user_conn.port_destination = port;
+
     log(INFO, "Connecting to domain name %s:%d", domainName, port);
 
     selector_set_interest_key(key, OP_WRITE); // Cambiar el interés a escritura
@@ -665,6 +706,10 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     data->destination.addressType = IPV4; // Guardar el tipo de dirección
     data->destination.address.ipv4 = ip; // Guardar la dirección IPv4
     data->destination.port = port; // Guardar el puerto
+    data->current_user_conn.ip_destination.is_ipv6 = 0;
+    data->current_user_conn.ip_destination.addr.ipv4.s_addr = data->destination.address.ipv4;
+    data->current_user_conn.destination_name = NULL;
+    data->current_user_conn.port_destination = data->destination.port;
 
     log(INFO, "Connecting to IPv4 address %s:%d", inet_ntoa(*(struct in_addr *)&ip), port);
 
@@ -704,6 +749,11 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     }
     data->destination.address.ipv6 = ipv6Addr; // Guardar la dirección IPv6
     data->destination.port = port; // Guardar el puerto
+    data->current_user_conn.ip_destination.is_ipv6 = 1;
+    data->current_user_conn.ip_destination.addr.ipv6 = data->destination.address.ipv6;
+    data->current_user_conn.destination_name = NULL;
+    data->current_user_conn.port_destination = data->destination.port;
+
 
     log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
 
@@ -823,6 +873,7 @@ int initializeClientData(clientData *data) {
 
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
+    user_connection_init(&data->current_user_conn);
     return 0;
 }
 void handleMasterClose(struct selector_key *key) {
@@ -863,6 +914,16 @@ void handleMasterRead(struct selector_key *key) {
         close(new_socket);
         return; // Error initializing client data
     }
+
+    // Set origin info
+    if (address.sin_family == AF_INET) {
+        data->origin.addressType = IPV4;
+        data->origin.address.ipv4 = address.sin_addr.s_addr;
+        data->origin.port = ntohs(address.sin_port);
+    } else {
+        log(ERROR, "Unsupported address family");
+    }
+
 
     // Registrar con interés inicial
     if (SELECTOR_SUCCESS != selector_register(key->s, new_socket, &client_handler, OP_READ, data)) {

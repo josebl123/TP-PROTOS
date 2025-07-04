@@ -1,5 +1,12 @@
 #include "metrics.h"
 #include <stdlib.h>
+#include <stdio.h>
+#include <arpa/inet.h>
+#include <time.h>
+#include <string.h>
+
+#include "server/tcpServerUtil.h"
+
 
 Metrics metrics;
 
@@ -93,3 +100,62 @@ void user_metrics_free(user_metrics* um) {
     um->total_bytes_sent = 0;
     um->total_bytes_received = 0;
 }
+
+void print_connection_line(FILE *out, const char *username, const user_connection *conn) {
+    if (!out || !conn || !username) return;
+
+    char time_str[32];
+    struct tm tm_utc;
+    gmtime_r(&conn->access_time, &tm_utc);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%dT%H:%M:%SZ", &tm_utc);
+
+    char ip_origin_str[INET6_ADDRSTRLEN];
+    if (conn->ip_origin.is_ipv6) {
+        inet_ntop(AF_INET6, &conn->ip_origin.addr.ipv6, ip_origin_str, sizeof(ip_origin_str));
+    } else {
+        inet_ntop(AF_INET, &conn->ip_origin.addr.ipv4, ip_origin_str, sizeof(ip_origin_str));
+    }
+
+    fprintf(out, "%s\t%s\tA\t%s\t%u\t%s\t%u\t%d\t%lu\t%lu\n",
+        time_str,
+        username,
+        ip_origin_str,
+        conn->port_origin,
+        conn->destination_name ? conn->destination_name : "-",
+        conn->port_destination,
+        conn->status,
+        conn->bytes_sent,
+        conn->bytes_received
+    );
+}
+
+void print_user_metrics_tabbed(user_metrics *um, const char *username, FILE *out) {
+    if (!um || !username || !out) return;
+    print_rbt_inorder(out, username, um->connections_tree.root);
+}
+
+void user_connection_init(user_connection *conn) {
+    if (!conn) return;
+    memset(conn, 0, sizeof(user_connection));
+    conn->access_time = time(NULL);
+    conn->destination_name = NULL;
+    conn->status = -1;  // o lo que uses como valor por defecto
+}
+
+#include <netinet/in.h> // para struct in_addr
+
+void fill_ip_address_from_origin(ip_address *dest, const struct origin_info *origin) {
+    if (origin->addressType == IPV4) {
+        dest->is_ipv6 = 0;
+        dest->addr.ipv4.s_addr = origin->address.ipv4; // Asigno el uint32_t al campo s_addr
+    } else if (origin->addressType == IPV6) {
+        dest->is_ipv6 = 1;
+        dest->addr.ipv6 = origin->address.ipv6;
+    } else {
+        dest->is_ipv6 = 0;
+        dest->addr.ipv4.s_addr = 0;
+    }
+}
+
+
+

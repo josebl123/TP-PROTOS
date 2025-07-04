@@ -7,6 +7,7 @@
 #include "../stm.h"
 #include "../buffer.h"
 #include <netdb.h>
+#include "../metrics/metrics.h"
 
 #define SOCKS_VERSION 5 // Version for SOCKS protocol
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
@@ -76,10 +77,19 @@ typedef struct {
     } address;
     uint16_t port; // Destination port
   } destination; // Destination information
+  struct origin_info {
+    uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
+    union {
+        uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
+        struct in6_addr ipv6; // IPv6 address
+    } address;
+    uint16_t port; // Origin port
+  } origin; // Origin information
 
   int remoteSocket; // Socket for the remote connection
   buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
   int responseStatus; // Status of the response to the client
+  user_connection current_user_conn;
 } clientData;
 
 typedef struct {

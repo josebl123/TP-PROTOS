@@ -16,15 +16,15 @@ int acceptTCPConfigConnection(int servSock);
 
 // Estados de la máquina de estados MAEP-S5
 typedef enum {
-   READ_HEADER,
-   READ_CREDENTIALS,
-   AUTH_DONE,
-   ADMIN_MENU,
-   ADMIN_METRIC_SCOPE,
-   ADMIN_METRIC_REQUEST,
-   USER_METRICS,
-   SEND_RESPONSE,
-   CONFIG_DONE
+    READ_CREDENTIALS,
+    AUTH_DONE,
+    USER_METRICS,
+    ADMIN_MENU_SEND,
+    ADMIN_MENU_READ,
+    ADMIN_SCOPE_READ,
+    ADMIN_METRICS_SEND,
+    CONFIG_DONE,
+    ERROR_CONFIG_CLIENT
 } config_state;
 
 // Información del cliente en la conexión de configuración
@@ -35,11 +35,14 @@ typedef struct {
     size_t bytes_read;
     uint8_t userlen;
     uint8_t passlen;
-    enum Role { ROL_INVALID = -1, ROL_USER = 0, ROL_ADMIN = 1 } role;
+    enum Role { ROLE_INVALID = -1, ROLE_USER = 0, ROLE_ADMIN = 1 } role;
     struct auth_config_info {
         char username[256];
         char password[256];
     } authInfo;
+    char *metrics_buf;
+    size_t metrics_buf_len;
+    size_t metrics_buf_offset;
 } clientConfigData;
 
 #endif

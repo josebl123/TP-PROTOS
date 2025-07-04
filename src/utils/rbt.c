@@ -1,7 +1,10 @@
-#include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include "rbt.h"
+#include "../metrics/metrics.h"
+#include <arpa/inet.h>
+
+
 
 rbt_node* create_node(user_connection conn) {
     rbt_node* node = malloc(sizeof(rbt_node));
@@ -114,3 +117,12 @@ void rbt_free(rbt_node* node) {
     rbt_free(node->right);
     free(node);
 }
+
+
+void print_rbt_inorder(FILE *out, const char *username, rbt_node *node) {
+    if (!node) return;
+    print_rbt_inorder(out, username, node->left);
+    print_connection_line(out, username, &node->conn);
+    print_rbt_inorder(out, username, node->right);
+}
+

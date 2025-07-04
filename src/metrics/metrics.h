@@ -2,7 +2,10 @@
 #define METRICS_H
 
 #include <stddef.h>
-#include "rbt.h"
+#include "../utils/rbt.h"
+#include <stdio.h>
+#include "../server/tcpServerUtil.h"
+
 
 typedef struct {
     uint64_t total_connections;
@@ -45,5 +48,10 @@ void metrics_add_unsupported_input(void);
 void user_metrics_init(user_metrics* um);
 void user_metrics_add_connection(user_metrics* um, const user_connection* new_conn_data);
 void user_metrics_free(user_metrics* um);
+void print_connection_line(FILE *out, const char *username, const user_connection *conn);
+void print_user_metrics_tabbed(user_metrics *um, const char *username, FILE *out);
+void user_connection_init(user_connection *conn);
+void fill_ip_address_from_origin(ip_address *dest, const struct origin_info *origin);
+
 
 #endif // METRICS_H
