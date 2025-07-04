@@ -36,11 +36,6 @@ static char addrBuffer[MAX_ADDR_BUFFER];
 void handleTcpClose(  struct selector_key *key) {
     log(INFO, "Closing client socket %d", key->fd);
     clientData *data =  key->data;
-    data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
-    user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
-
-    // Suponiendo que tenés el user_metrics del cliente:
-    user_metrics_add_connection(user_metrics, &data->current_user_conn);
 
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
 
@@ -49,7 +44,6 @@ void handleTcpClose(  struct selector_key *key) {
     free(data);
     // Close the client socket
     close(key->fd);
-    metrics_connection_closed();
 }
 void handleRemoteClose( struct selector_key *key) {
     log(INFO, "Closing remote socket %d", key->fd);
@@ -77,7 +71,7 @@ void clientClose(const unsigned state, struct selector_key *key) {
     localtime_r(&data->current_user_conn.access_time, &tm_info);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
 
-    log(INFO, "Saving user connection: status=%d, bytes_sent=%lu, bytes_received=%lu, port_origin=%u, port_destination=%u, destination_name=%s, access_time=%s",
+    log(INFO, "Saving user connection IN CLIENT CLOSE: status=%d, bytes_sent=%lu, bytes_received=%lu, port_origin=%u, port_destination=%u, destination_name=%s, access_time=%s",
         data->current_user_conn.status,
         data->current_user_conn.bytes_sent,
         data->current_user_conn.bytes_received,
@@ -86,8 +80,8 @@ void clientClose(const unsigned state, struct selector_key *key) {
         data->current_user_conn.destination_name ? data->current_user_conn.destination_name : "NULL",
         time_str
     );
+    metrics_connection_closed();
 
-    //TODO: ESTO ESTA MAL, SI SE CIERRA MAL NO DEBERIA IR CON STATUS 0;
 
     // Suponiendo que tenés el user_metrics del cliente:
     user_metrics_add_connection(user_metrics, &data->current_user_conn);
@@ -122,7 +116,7 @@ static const struct state_definition relay_states[] = {
     [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = remoteClose },
 };
 
- static const fd_handler client_handler = {
+static const fd_handler client_handler = {
     .handle_read = socks5_read, // Initial read handler
     .handle_write = socks5_write, // Initial write handler
     .handle_block = NULL, // Not used in this case
@@ -136,16 +130,19 @@ static const fd_handler relay_handler = {
 };
 
 
-int setupTCPServerSocket(const char *service) {
+int setupTCPServerSocket(const char *ip, const int port) {
     // Construct the server address structure
     struct addrinfo addrCriteria = {0};                   // Criteria for address match
     addrCriteria.ai_family = AF_UNSPEC;             // Any address family
-    addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
+    // addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
     addrCriteria.ai_socktype = SOCK_STREAM;         // Only stream sockets
     addrCriteria.ai_protocol = IPPROTO_TCP;         // Only TCP protocol
+    // Convertir el puerto a string
+    char portStr[6];   // Máx: 65535 + null
+    snprintf(portStr, sizeof(portStr), "%d", port);
 
     struct addrinfo *servAddr; 			// List of server addresses
-    const int rtnVal = getaddrinfo(NULL, service, &addrCriteria, &servAddr);
+    const int rtnVal = getaddrinfo(ip, portStr, &addrCriteria, &servAddr);
     if (rtnVal != 0) {
         log(FATAL, "getaddrinfo() failed %s", gai_strerror(rtnVal));
         return -1;
@@ -955,7 +952,6 @@ void socks5_relay_close(struct selector_key *key) {
 void socks5_relay_read(struct selector_key *key) {
     const remoteData *rData = key->data;
     if (rData != NULL && rData->stm != NULL) {
-        log(INFO, "Reading from remote socket %d for client %d", key->fd, rData->client_fd);
         stm_handler_read(rData->stm, key); // Read data from the remote socket
     }
 }
@@ -963,7 +959,6 @@ void socks5_relay_read(struct selector_key *key) {
 void socks5_relay_write(struct selector_key *key) {
     const remoteData *rData = key->data;
     if (rData != NULL && rData->stm != NULL) {
-        log(INFO, "Writing to remote socket %d for client %d", key->fd, rData->client_fd);
         stm_handler_write(rData->stm, key); // Write data to the remote socket
     }
 }

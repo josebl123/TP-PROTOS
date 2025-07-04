@@ -3,11 +3,15 @@
 //
 
 #include "socksAuth.h"
+
+#include <args.h>
+
 #include "../utils/logger.h"
 #include <errno.h>
-#include <stdint.h>
+#include "server/server.h"
 #include <string.h>
 #include <sys/socket.h>
+
 #include <unistd.h>
 #include <stdint.h>
 #include "utils/user_metrics_table.h"
@@ -93,13 +97,15 @@ unsigned handleHelloWrite(struct selector_key *key) {
         if (data->authMethod == AUTH_METHOD_NOAUTH) {
             log(INFO, "No authentication required, moving to request read state");
             return REQUEST_READ; // Si no se requiere autenticación, pasar al estado de lectura de solicitud
-        } else if (data->authMethod == AUTH_METHOD_PASSWORD) {
+        }
+        if (data->authMethod == AUTH_METHOD_PASSWORD) {
             log(INFO, "Selected authentication method: Password, moving to auth method subnegotiation");
             return AUTH_READ;
-        } else {
-            log(INFO, "No acceptable method for auth, moving back to hello read");
-            return HELLO_READ;
         }
+
+        log(INFO, "No acceptable method for auth, moving back to hello read");
+        return HELLO_READ;
+
     }
     log(INFO, "Sent %zd bytes of hello response to client socket %d", numBytesSent, clntSocket);
     return HELLO_WRITE; // Mantener el estado de escritura de saludo
@@ -162,10 +168,19 @@ unsigned handleAuthWrite(struct selector_key *key) {
 
     // Enviar respuesta de autenticación al cliente
     char response[2] = {SOCKS_VERSION, 1}; // Respuesta de autenticación exitosa FIXME: magic num
+    for (int i=0; i < MAX_USERS && socksArgs->users[i].name != NULL; i++) {
+        if (strcmp(socksArgs->users[i].name, data->authInfo.username) == 0 &&
+            strcmp(socksArgs->users[i].pass, data->authInfo.password) == 0) {
+            response[1] = 0; // Autenticación exitosa
+            log(INFO, "Authentication successful for user: %s", data->authInfo.username);
+            break; // Salir del bucle si la autenticación es exitosa
+            }
+    }
     if( strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "pass") == 0) {
         response[1] = 0; // Autenticación exitosa
         get_or_create_user_metrics(data->authInfo.username);
     }
+
     const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
 
     log(INFO, "Sending authentication response to client socket %d with bytes: %zu", clntSocket, numBytesSent);

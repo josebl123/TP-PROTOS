@@ -74,11 +74,11 @@ parse_args(const int argc, char** argv, struct socks5args* args)
 {
     memset(args, 0, sizeof(*args)); // sobre todo para setear en null los punteros de users
 
-    args->socks_addr = "0.0.0.0";
-    args->socks_port = 1080;
+    args->socks_addr = DEFAULT_SOCKS_ADDR;
+    args->socks_port = DEFAULT_SOCKS_PORT;
 
-    args->mng_addr = "127.0.0.1";
-    args->mng_port = 8080;
+    args->mng_addr = DEFAULT_MNG_ADDR;
+    args->mng_port = DEFAULT_MNG_PORT;
 
     args->disectors_enabled = true;
 

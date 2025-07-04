@@ -103,7 +103,7 @@ typedef struct {
 } remoteData;
 
 // Create, bind, and listen a new TCP server socket
-int setupTCPServerSocket(const char *service);
+int setupTCPServerSocket(const char *addr, const int port);
 
 // Accept a new TCP connection on a server socket
 int acceptTCPConnection(int servSock);
