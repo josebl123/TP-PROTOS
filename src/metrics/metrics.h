@@ -52,6 +52,9 @@ void print_connection_line(FILE *out, const char *username, const user_connectio
 void print_user_metrics_tabbed(user_metrics *um, const char *username, FILE *out);
 void user_connection_init(user_connection *conn);
 void fill_ip_address_from_origin(ip_address *dest, const struct origin_info *origin);
+void print_global_metrics(FILE * out);
+void print_global_metrics_tabbed(FILE *out);
+
 
 
 #endif // METRICS_H

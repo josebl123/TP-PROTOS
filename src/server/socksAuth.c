@@ -176,10 +176,10 @@ unsigned handleAuthWrite(struct selector_key *key) {
             break; // Salir del bucle si la autenticación es exitosa
             }
     }
-    if( strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "pass") == 0) {
+    if( strcmp(data->authInfo.username, "admi") == 0 && strcmp(data->authInfo.password, "userpass") == 0) {
         response[1] = 0; // Autenticación exitosa
         get_or_create_user_metrics(data->authInfo.username);
-    }
+    } //TODO: REMOVE, ADDED IN MERGE.
 
     const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
 

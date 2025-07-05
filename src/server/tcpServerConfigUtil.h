@@ -22,7 +22,11 @@ typedef enum {
     ADMIN_MENU_SEND,
     ADMIN_MENU_READ,
     ADMIN_SCOPE_READ,
+    ADMIN_SCOPE_MENU_SEND,
+    ADMIN_SCOPE_WRITE,
     ADMIN_METRICS_SEND,
+    ADMIN_CONFIG_READ,
+    ADMIN_CONFIG_WRITE,
     CONFIG_DONE,
     ERROR_CONFIG_CLIENT
 } config_state;
@@ -43,6 +47,7 @@ typedef struct {
     char *metrics_buf;
     size_t metrics_buf_len;
     size_t metrics_buf_offset;
+    char target_username[128];
 } clientConfigData;
 
 #endif

@@ -405,6 +405,7 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
                 // Print the address we are connecting to
                 printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);
                 log(INFO, "Connecting to remote %s", addrBuffer);
+                metrics_add_dns_resolution();
                 return remoteSock;
             }
         }
@@ -414,11 +415,6 @@ int setupTCPRemoteSocket(const struct destination_info *destination,  struct sel
             freeaddrinfo(res);
             return -1;
         }
-
-        metrics_add_dns_resolution();
-        // Free the address info structure
-        freeaddrinfo(res);
-
     } else {
         log(ERROR, "Unsupported address type: %d", destination->addressType);
         metrics_add_unsupported_input();

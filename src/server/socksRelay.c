@@ -87,7 +87,7 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
-    metrics_add_bytes_remote_to_client(numBytesSent);
+    // metrics_add_bytes_remote_to_client(numBytesSent);
     clientData *client = (clientData *)key->data;
     client->current_user_conn.bytes_received += numBytesSent;
 
@@ -139,7 +139,7 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     }
     buffer_read_adv(data->client->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Sent %zd bytes to remote socket %d", numBytesSent, remoteSocket);
-    metrics_add_bytes_client_to_remote(numBytesSent);
+    // metrics_add_bytes_client_to_remote(numBytesSent);
     clientData *client = (clientData *)key->data;
     client->current_user_conn.bytes_sent += numBytesSent;
 

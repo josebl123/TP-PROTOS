@@ -9,6 +9,7 @@
 #include "rbt.h"
 #include "../metrics/metrics.h"
 #include "utils/user_metrics_table.h"
+#include <errno.h>
 
 #define BUFSIZE 1024
 #define MAX_ADDR_BUFFER 128
@@ -84,7 +85,7 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     log(INFO, "Received username: %s", data->authInfo.username);
     log(INFO, "Received password: %s", data->authInfo.password);
 
-    if (strcmp(data->authInfo.username, "admin") == 0 && strcmp(data->authInfo.password, "adminpass") == 0) {
+    if (strcmp(data->authInfo.username, "admi") == 0 && strcmp(data->authInfo.password, "userpass") == 0) {
         data->role = ROLE_ADMIN;
     } else if (strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "userpass") == 0) {
         data->role = ROLE_USER;
@@ -196,15 +197,265 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
     close(key->fd);
 }
 unsigned handleAdminMenuInitialWrite(struct selector_key *key) {
-    return 1;
+    clientConfigData *data = key->data;
+    int clntSocket = key->fd;
+
+    const char *menu =
+        "=== Admin Menu ===\n"
+        "1) Ver métricas globales\n"
+        "2) Ver metricas de un usuario\n"
+        "3) Entrar a configuración del servidor\n"
+        "4) Salir (elegir 4 y apretar dos veces enter)\n" //TODO: FIX THIS
+        "Seleccione una opción: ";
+
+    ssize_t sent = send(clntSocket, menu, strlen(menu), MSG_DONTWAIT);
+    if (sent < 0) {
+        log(ERROR, "send() failed in admin menu write");
+        return CONFIG_DONE;
+    }
+
+    selector_set_interest_key(key, OP_READ);
+    return ADMIN_MENU_READ;
 }
+
 unsigned handleAdminMenuRead(struct selector_key *key) {
-    return 1;
+    log(INFO, "Entered ADMIN_MENU_READ");
+    clientConfigData *data = key->data;
+    int clntSocket = key->fd;
+
+    size_t writeLimit;
+    uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
+    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    if (numBytesRcvd < 0) {
+        log(ERROR, "recv() failed: %s", strerror(errno));
+        return CONFIG_DONE;
+    } else if (numBytesRcvd == 0) {
+        log(INFO, "Client closed connection");
+        return CONFIG_DONE;
+    }
+
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+
+    size_t avail;
+    uint8_t *read_ptr = buffer_read_ptr(data->clientBuffer, &avail);
+    if (avail == 0) return ADMIN_MENU_READ;
+
+    // Busco un carácter válido (ignoro '\n', '\r' y espacios)
+    char opt = '\0';
+    while (avail > 0) {
+        char c = (char)*read_ptr;
+        buffer_read_adv(data->clientBuffer, 1);
+        avail--;
+        if (c != '\n' && c != '\r' && c != ' ') {
+            opt = c;
+            break;
+        }
+        read_ptr = buffer_read_ptr(data->clientBuffer, &avail);
+    }
+
+    if (opt == '\0') {
+        selector_set_interest_key(key, OP_READ);
+        return ADMIN_MENU_READ; // Esperá más input
+    }
+
+    log(INFO, "Admin option received: %c", opt);
+
+    switch (opt) {
+        case '1': //TODO: MAGIC NUMBERS
+            selector_set_interest_key(key, OP_WRITE);
+            return ADMIN_METRICS_SEND;
+        case '2':
+            selector_set_interest_key(key, OP_WRITE);
+            return ADMIN_SCOPE_MENU_SEND;
+        case '3':
+            return ADMIN_CONFIG_READ;
+        case '4':
+            buffer_reset(data->clientBuffer);  // <<< Limpia el buffer
+            return CONFIG_DONE;
+        default: {
+            const char *msg = "Opción inválida.\nSeleccione una opción: ";
+            send(clntSocket, msg, strlen(msg), MSG_DONTWAIT);
+            buffer_reset(data->clientBuffer);  // <<< Limpia el buffer
+            selector_set_interest_key(key, OP_READ);
+            return ADMIN_MENU_READ;
+        }
+    }
 }
+
+
+unsigned handleAdminScopeMenuWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int clntSocket = key->fd;
+
+    const char *prompt = "Ingrese el nombre de usuario: ";
+
+    ssize_t sent = send(clntSocket, prompt, strlen(prompt), MSG_DONTWAIT);
+    if (sent < 0) {
+        log(ERROR, "send() failed in handleAdminScopeMenuWrite");
+        return CONFIG_DONE;
+    }
+
+    selector_set_interest_key(key, OP_READ);
+    return ADMIN_SCOPE_READ;
+}
+
+
 unsigned handleAdminScopeRead(struct selector_key *key) {
-    return 1;
+    log(INFO, "Entered handleAdminScopeRead");
+    clientConfigData *data = key->data;
+    int clntSocket = key->fd;
+
+    size_t writeLimit;
+    uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
+    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    if (numBytesRcvd <= 0) {
+        log(ERROR, "recv() failed or connection closed");
+        return CONFIG_DONE;
+    }
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+
+    size_t avail;
+    const uint8_t *read_ptr = buffer_read_ptr(data->clientBuffer, &avail);
+
+    // Busco \n o \r
+    size_t i;
+    for (i = 0; i < avail; i++) {
+        if (read_ptr[i] == '\n' || read_ptr[i] == '\r') {
+            break;
+        }
+    }
+
+    // Si no encontré el final de línea aún, espero más input
+    if (i == avail) {
+        selector_set_interest_key(key, OP_READ);
+        return ADMIN_SCOPE_READ;
+    }
+
+    // i ahora es la posición del \n
+    size_t copyLen = (i < sizeof(data->target_username) - 1) ? i : sizeof(data->target_username) - 1;
+
+    memset(data->target_username, 0, sizeof(data->target_username));
+    memcpy(data->target_username, read_ptr, copyLen);
+    data->target_username[copyLen] = '\0';
+
+    buffer_read_adv(data->clientBuffer, i + 1);  // Saltea \n o \r también
+
+    log(INFO, "Admin selected user: %s", data->target_username);
+
+    selector_set_interest_key(key, OP_WRITE);
+    return ADMIN_SCOPE_WRITE;
 }
+
+
+
+unsigned handleAdminScopeWrite(struct selector_key * key) {
+    clientConfigData *data = key->data;
+    int clntSocket = key->fd;
+
+    if (data->metrics_buf == NULL) {
+        size_t bufsize = METRICS_BUF_CHUNK;
+        char *buffer = malloc(bufsize);
+        if (!buffer) {
+            return CONFIG_DONE;
+        }
+
+        FILE *memfile = fmemopen(buffer, bufsize, "w");
+        if (!memfile) {
+            free(buffer);
+            return CONFIG_DONE;
+        }
+
+        user_metrics *um = get_or_create_user_metrics("admi"); //TODO: THIS IS HARDCODDED TO TEST IT
+        if (!um) {
+            const char *msg = "Usuario no encontrado.\n";
+            send(clntSocket, msg, strlen(msg), MSG_DONTWAIT);
+            fclose(memfile);
+            free(buffer);
+            return ADMIN_MENU_SEND;
+        }
+
+        print_user_metrics_tabbed(um, "admi", memfile); //TODO: THIS IS HARDCODDED TO TEST IT
+        fflush(memfile);
+        size_t written = ftell(memfile);
+        fclose(memfile);
+
+        data->metrics_buf = buffer;
+        data->metrics_buf_len = written;
+        data->metrics_buf_offset = 0;
+    }
+
+    size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+    if (sent < 0) return CONFIG_DONE;
+
+    data->metrics_buf_offset += sent;
+
+    if (data->metrics_buf_offset >= data->metrics_buf_len) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+
+        buffer_reset(data->clientBuffer);  // <<< AGREGÁ ESTO
+        return ADMIN_MENU_SEND;
+    }
+
+
+    return ADMIN_SCOPE_WRITE;
+}
+
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int clntSocket = key->fd;
+
+    if (data->metrics_buf == NULL) {
+        size_t bufsize = METRICS_BUF_CHUNK;
+        char *buffer = malloc(bufsize);
+        if (!buffer) return CONFIG_DONE;
+
+        FILE *memfile = fmemopen(buffer, bufsize, "w");
+        if (!memfile) {
+            free(buffer);
+            return CONFIG_DONE;
+        }
+
+        // Imprimir las métricas globales en el buffer
+        print_global_metrics(memfile);
+        fflush(memfile);
+
+        size_t written = ftell(memfile);
+        fclose(memfile);
+
+        data->metrics_buf = buffer;
+        data->metrics_buf_len = written;
+        data->metrics_buf_offset = 0;
+    }
+
+    size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+    if (sent < 0) {
+        return CONFIG_DONE;
+    }
+
+    data->metrics_buf_offset += sent;
+
+    if (data->metrics_buf_offset >= data->metrics_buf_len) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+
+        buffer_reset(data->clientBuffer);  // <<< AGREGÁ ESTO TAMBIÉN
+        return ADMIN_MENU_SEND;  // Volver al menú
+    }
+
+    return ADMIN_METRICS_SEND;
+}
+
+
+unsigned handleAdminConfigRead(struct selector_key * key) {
+    return 1;
+}unsigned handleAdminConfigWrite(struct selector_key * key) {
     return 1;
 }
 
@@ -234,10 +485,28 @@ static const struct state_definition states_config[] = {
         .state = ADMIN_SCOPE_READ,
         .on_read_ready = handleAdminScopeRead,
     },
+    [ADMIN_SCOPE_MENU_SEND] = {
+        .state = ADMIN_SCOPE_MENU_SEND,
+        .on_write_ready = handleAdminScopeMenuWrite,
+    },
+    [ADMIN_SCOPE_WRITE] = {
+        .state = ADMIN_SCOPE_WRITE,
+        .on_write_ready = handleAdminScopeWrite,
+    },
     [ADMIN_METRICS_SEND] = {
         .state = ADMIN_METRICS_SEND,
         .on_write_ready = handleAdminMetricsWrite,
     },
+    [ADMIN_CONFIG_READ] = {
+        .state = ADMIN_CONFIG_READ,
+        .on_read_ready = handleAdminConfigRead,
+    },
+    [ADMIN_CONFIG_WRITE] = {
+        .state = ADMIN_CONFIG_WRITE,
+        .on_write_ready = handleAdminConfigWrite,
+    },
+
+
     [CONFIG_DONE] = {
         .state = CONFIG_DONE,
         .on_arrival = handleConfigDone,
