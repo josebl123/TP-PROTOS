@@ -121,6 +121,7 @@ void rbt_free(rbt_node* node) {
 
 void print_rbt_inorder(FILE *out, const char *username, rbt_node *node) {
     if (!node) return;
+    //TODO: ADD A HEADER TO THIS TABLE
     print_rbt_inorder(out, username, node->left);
     print_connection_line(out, username, &node->conn);
     print_rbt_inorder(out, username, node->right);

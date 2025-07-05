@@ -608,11 +608,13 @@ unsigned connectWrite(struct selector_key * key) {
 
     data->client->responseStatus = SOCKS5_SUCCEEDED; // Set response status to success
     data->client->addressResolved = 1;
+    metrics_add_dns_resolution();
     if (data->client->destination.addressType == DOMAINNAME && selector_notify_block(key->s,data->client_fd) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to notify selector for client socket %d", key->fd);
         data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         return RELAY_ERROR; // TODO definir codigos de error
-    } else if (data->client->destination.addressType != DOMAINNAME && selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
+    }
+    if (data->client->destination.addressType != DOMAINNAME && selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
         data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         return RELAY_ERROR; // TODO definir codigos de error
@@ -626,7 +628,7 @@ unsigned connectWrite(struct selector_key * key) {
 }
 void sendFailureResponse(int clntSocket, char *response) {
     response[3] = IPV4; // Address type (0 for IPv4)
-    ssize_t numBytesSent = send(clntSocket, response, 10, MSG_DONTWAIT); // Send the failure response TODO magic number, yay
+    const ssize_t numBytesSent = send(clntSocket, response, 10, MSG_DONTWAIT); // Send the failure response TODO magic number, yay
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
     } else if (numBytesSent == 0) {

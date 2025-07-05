@@ -4,6 +4,8 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include <string.h>
+#include <netinet/in.h> // para struct in_addr
+
 
 #include "server/tcpServerUtil.h"
 
@@ -115,7 +117,6 @@ void print_connection_line(FILE *out, const char *username, const user_connectio
     } else {
         inet_ntop(AF_INET, &conn->ip_origin.addr.ipv4, ip_origin_str, sizeof(ip_origin_str));
     }
-
     fprintf(out, "%s\t%s\tA\t%s\t%u\t%s\t%u\t%d\t%lu\t%lu\n",
         time_str,
         username,
@@ -142,7 +143,6 @@ void user_connection_init(user_connection *conn) {
     conn->status = -1;  // o lo que uses como valor por defecto
 }
 
-#include <netinet/in.h> // para struct in_addr
 
 void fill_ip_address_from_origin(ip_address *dest, const struct origin_info *origin) {
     if (origin->addressType == IPV4) {
@@ -156,6 +156,56 @@ void fill_ip_address_from_origin(ip_address *dest, const struct origin_info *ori
         dest->addr.ipv4.s_addr = 0;
     }
 }
+
+void print_global_metrics(FILE *out) {
+    if (!out) return;
+    fprintf(out,
+        "\ntotal_connections: %lu\n"
+        "current_connections: %lu\n"
+        "bytes_client_to_remote: %lu\n"
+        "bytes_remote_to_client: %lu\n"
+        "dns_resolutions_connections: %lu\n"
+        "send_errors: %lu\n"
+        "receive_errors: %lu\n"
+        "dns_resolution_errors: %lu\n"
+        "ipv4_connections: %lu\n"
+        "ipv6_connections: %lu\n"
+        "server_errors: %lu\n"
+        "unsupported_input: %lu\n\n",
+        metrics.total_connections,
+        metrics.current_connections,
+        metrics.bytes_client_to_remote,
+        metrics.bytes_remote_to_client,
+        metrics.dns_resolutions_connections,
+        metrics.send_errors,
+        metrics.receive_errors,
+        metrics.dns_resolution_errors,
+        metrics.ipv4_connections,
+        metrics.ipv6_connections,
+        metrics.server_errors,
+        metrics.unsupported_input
+    );
+}
+
+void print_global_metrics_tabbed(FILE *out) {
+    if (!out) return;
+
+    fprintf(out, "Metric\tValue\n");
+    fprintf(out, "total_connections\t%lu\n", metrics.total_connections);
+    fprintf(out, "current_connections\t%lu\n", metrics.current_connections);
+    fprintf(out, "bytes_client_to_remote\t%lu\n", metrics.bytes_client_to_remote);
+    fprintf(out, "bytes_remote_to_client\t%lu\n", metrics.bytes_remote_to_client);
+    fprintf(out, "dns_resolutions_connections\t%lu\n", metrics.dns_resolutions_connections);
+    fprintf(out, "send_errors\t%lu\n", metrics.send_errors);
+    fprintf(out, "receive_errors\t%lu\n", metrics.receive_errors);
+    fprintf(out, "dns_resolution_errors\t%lu\n", metrics.dns_resolution_errors);
+    fprintf(out, "ipv4_connections\t%lu\n", metrics.ipv4_connections);
+    fprintf(out, "ipv6_connections\t%lu\n", metrics.ipv6_connections);
+    fprintf(out, "server_errors\t%lu\n", metrics.server_errors);
+    fprintf(out, "unsupported_input\t%lu\n", metrics.unsupported_input);
+}
+
+
 
 
 
