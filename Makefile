@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -Isrc/utils
+CFLAGS = -Wall -Wextra -g -Isrc/utils -D_GNU_SOURCE
 BIN = server
 TEST_BIN = test_program
 SRC_DIR = src
@@ -59,11 +59,11 @@ dirs:
 
 # Main server target
 $(BIN_DIR)/$(BIN): $(SERVER_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl
 
 # Test target
 $(BIN_DIR)/$(TEST_BIN): $(TEST_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread $(CHECK_FLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl $(CHECK_FLAGS)
 
 # Compile source files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c

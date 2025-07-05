@@ -10,7 +10,7 @@
 #include "../metrics/metrics.h"
 #include "utils/user_metrics_table.h"
 
-#define BUFSIZE 1024
+#define BUFSIZE 2048
 #define MAX_ADDR_BUFFER 128
 #define METRICS_BUF_CHUNK 4096
 static char addrBuffer[MAX_ADDR_BUFFER];

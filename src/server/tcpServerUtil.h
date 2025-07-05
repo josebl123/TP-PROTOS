@@ -1,6 +1,7 @@
 #ifndef TCPSERVERUTIL_H_
 #define TCPSERVERUTIL_H_
 
+#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <netinet/in.h>    // For struct in6_addr and struct sockaddr_in
 #include "../selector.h"  // Added include for selector_key struct
@@ -10,6 +11,8 @@
 #include "../metrics/metrics.h"
 
 #define SOCKS_VERSION 5 // Version for SOCKS protocol
+#define CONNECT 1
+#define RSV 0
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
 
 enum socks5_auth_methods {
@@ -43,6 +46,7 @@ enum socks5_states {
   DONE,
   ERROR_CLIENT,
   RELAY_CLIENT,
+  DOMAIN_RESOLVING,
 };
 
 enum relay_states {
@@ -58,8 +62,18 @@ enum ADDRESS_TYPE {
   IPV6 = 0x04         // IPv6 address
 };
 
+typedef struct clientData clientData;
 
-typedef struct {
+ struct dnsReq{
+    clientData * clientData; // Pointer to the client data structure
+    struct gaicb request;
+    fd_selector fdSelector;
+    struct addrinfo hints; // Pointer to the address info for the DNS request
+    int fd; // File descriptor for the DNS request
+    char port[6]; // Port string for the DNS request
+};
+
+ struct clientData {
   buffer * clientBuffer;
   struct state_machine *stm; // Pointer to the state machine
   uint8_t authMethod;
@@ -90,7 +104,12 @@ typedef struct {
   buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
   int responseStatus; // Status of the response to the client
   user_connection current_user_conn;
-} clientData;
+
+  struct dnsReq *dnsRequest; // Pointer to the DNS request structure
+  int addressResolved; // Flag to indicate if the callback is ready
+  struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
+
+};
 
 typedef struct {
     int client_fd; // File descriptor for the remote socket
@@ -124,7 +143,9 @@ unsigned handleRequestRead(struct selector_key *key);
 // Handle writing to the client socket
 unsigned handleRequestWrite(struct selector_key *key);
 
- void socks5_close(struct selector_key *key);
+unsigned handleDomainResolve(struct selector_key *key);
+
+void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);
 void socks5_write(struct selector_key *key);
 void socks5_block(struct selector_key *key);

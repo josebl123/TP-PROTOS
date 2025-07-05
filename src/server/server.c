@@ -1,6 +1,8 @@
 //
 // Created by nicol on 6/24/2025.
 //
+#define _GNU_SOURCE
+#include <netdb.h>
 #include "server.h"
 /**
     Handle multiple socket connections with select and fd_set on Linux
@@ -26,8 +28,8 @@
 #define FALSE  0
 #define PORT "1080"
 #define CONFIG_PORT "8080"
-#define INITIAL_MAX_CLIENTS 30
-#define MAX_BUFFER_SIZE 1024
+#define INITIAL_MAX_CLIENTS 500
+#define MAX_BUFFER_SIZE 2048
 
 struct fdselector *selector = NULL; // Global selector variable
 struct socks5args *socksArgs = NULL; // Global args variable
