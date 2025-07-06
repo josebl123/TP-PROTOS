@@ -144,7 +144,7 @@ void user_connection_init(user_connection *conn) {
 }
 
 
-void fill_ip_address_from_origin(ip_address *dest, const struct origin_info *origin) {
+void fill_ip_address_from_origin(ip_address *dest, struct originInfo *origin) {
     if (origin->addressType == IPV4) {
         dest->is_ipv6 = 0;
         dest->addr.ipv4.s_addr = origin->address.ipv4; // Asigno el uint32_t al campo s_addr

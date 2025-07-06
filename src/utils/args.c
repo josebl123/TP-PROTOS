@@ -25,7 +25,7 @@ port(const char* s)
 }
 
 static void
-user(char* s, struct users* user)
+user(char* s, struct users* user, bool is_admin)
 {
     char* p = strchr(s, ':');
     if (p == NULL)
@@ -39,6 +39,7 @@ user(char* s, struct users* user)
         p++;
         user->name = s;
         user->pass = p;
+        user->is_admin = is_admin;
     }
 }
 
@@ -92,7 +93,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
             {0, 0, 0, 0}
         };
 
-        c = getopt_long(argc, argv, "hl:L:Np:P:u:v", long_options, &option_index);
+        c = getopt_long(argc, argv, "hl:L:Np:P:u:va:", long_options, &option_index);
         if (c == -1)
             break;
 
@@ -124,9 +125,21 @@ parse_args(const int argc, char** argv, struct socks5args* args)
             }
             else
             {
-                user(optarg, args->users + nusers);
+                user(optarg, args->users + nusers, false);
                 nusers++;
             }
+            break;
+        case 'a':
+          if (nusers >= MAX_USERS)
+          {
+              fprintf(stderr, "maximun number of command line users reached: %d.\n", MAX_USERS);
+              exit(1);
+          }
+          else
+          {
+              user(optarg, args->users + nusers, true);
+              nusers++;
+          }
             break;
         case 'v':
             version();

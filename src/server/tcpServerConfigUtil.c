@@ -9,12 +9,11 @@
 #include "rbt.h"
 #include "../metrics/metrics.h"
 #include "utils/user_metrics_table.h"
+#include "server.h"
 #include <errno.h>
 
-#define BUFSIZE 2048
 #define MAX_ADDR_BUFFER 128
 #define METRICS_BUF_CHUNK 4096
-static char addrBuffer[MAX_ADDR_BUFFER];
 
 
 #define CONFIG_VERSION 0x01
@@ -22,6 +21,7 @@ static char addrBuffer[MAX_ADDR_BUFFER];
 #define STATUS_FAIL 0x01
 #define ROLE_USER 0x00
 #define ROLE_ADMIN 0x01
+
 
 unsigned handleAuthConfigRead(struct selector_key *key) {
     int clntSocket = key->fd;
@@ -58,11 +58,11 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     buffer_read_ptr(data->clientBuffer, &available);
     if (available < data->userlen + data->passlen) return READ_CREDENTIALS;
 
-    if (data->userlen >= sizeof(data->authInfo.username) ||
-        data->passlen >= sizeof(data->authInfo.password)) {
-        log(ERROR, "Username or password too long, userlen=%u passlen=%u", data->userlen, data->passlen);
-        return CONFIG_DONE;
-    }
+    // if (data->userlen >= sizeof(data->authInfo.username) || TODO:imposible que pase esto por el tamaño del buffer
+    //     data->passlen >= sizeof(data->authInfo.password)) {
+    //     log(ERROR, "Username or password too long, userlen=%u passlen=%u", data->userlen, data->passlen);
+    //     return CONFIG_DONE;
+    // }
 
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
     if (ptr == NULL || available < data->userlen) {
@@ -167,8 +167,8 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         data->metrics_buf_offset = 0;
     }
 
-    size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
     if (sent < 0) {
         return CONFIG_DONE;
     }
@@ -197,7 +197,6 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
     close(key->fd);
 }
 unsigned handleAdminMenuInitialWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
     int clntSocket = key->fd;
 
     const char *menu =
@@ -208,7 +207,7 @@ unsigned handleAdminMenuInitialWrite(struct selector_key *key) {
         "4) Salir (elegir 4 y apretar dos veces enter)\n" //TODO: FIX THIS
         "Seleccione una opción: ";
 
-    ssize_t sent = send(clntSocket, menu, strlen(menu), MSG_DONTWAIT);
+    const ssize_t sent = send(clntSocket, menu, strlen(menu), MSG_DONTWAIT);
     if (sent < 0) {
         log(ERROR, "send() failed in admin menu write");
         return CONFIG_DONE;
@@ -225,11 +224,12 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
 
     size_t writeLimit;
     uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
+    const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed: %s", strerror(errno));
         return CONFIG_DONE;
-    } else if (numBytesRcvd == 0) {
+    }
+    if (numBytesRcvd == 0) {
         log(INFO, "Client closed connection");
         return CONFIG_DONE;
     }
@@ -284,7 +284,6 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
 
 
 unsigned handleAdminScopeMenuWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
     int clntSocket = key->fd;
 
     const char *prompt = "Ingrese el nombre de usuario: ";
@@ -332,7 +331,7 @@ unsigned handleAdminScopeRead(struct selector_key *key) {
     }
 
     // i ahora es la posición del \n
-    size_t copyLen = (i < sizeof(data->target_username) - 1) ? i : sizeof(data->target_username) - 1;
+    const size_t copyLen = (i < sizeof(data->target_username) - 1) ? i : sizeof(data->target_username) - 1;
 
     memset(data->target_username, 0, sizeof(data->target_username));
     memcpy(data->target_username, read_ptr, copyLen);
@@ -431,8 +430,8 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         data->metrics_buf_offset = 0;
     }
 
-    size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
     if (sent < 0) {
         return CONFIG_DONE;
     }
@@ -537,13 +536,13 @@ int initializeClientConfigData(clientConfigData *data) {
         free(stm);
         return -1;
     }
-    buf->data = malloc(BUFSIZE);
+    buf->data = malloc(bufferSize);
     if (buf->data == NULL) {
         free(buf);
         free(stm);
         return -1;
     }
-    buffer_init(buf, BUFSIZE, buf->data);
+    buffer_init(buf, bufferSize, buf->data);
     data->clientBuffer = buf;
     data->stm = stm;
     data->state = READ_CREDENTIALS;
@@ -623,7 +622,7 @@ void handleConfigRead(struct selector_key *key) {
     printf("Client socket %d registered\n", new_socket);
 }
 
-int acceptTCPConfigConnection(int servSock) {
+int acceptTCPConfigConnection(const int servSock) {
     struct sockaddr_storage clntAddr;
     socklen_t clntAddrLen = sizeof(clntAddr);
     int clntSock = accept(servSock, (struct sockaddr *)&clntAddr, &clntAddrLen);

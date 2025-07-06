@@ -4,6 +4,7 @@
 #include <stdbool.h>
 
 #define MAX_USERS 10
+#define MAX_ADMINS 3
 #define DEFAULT_SOCKS_ADDR "0.0.0.0"
 #define DEFAULT_SOCKS_PORT 1080
 #define DEFAULT_MNG_ADDR "127.0.0.1"
@@ -14,6 +15,7 @@ struct users
 {
     char* name;
     char* pass;
+    bool is_admin; // true si es admin, false si es usuario normal
 };
 
 struct socks5args
@@ -27,6 +29,7 @@ struct socks5args
     bool disectors_enabled;
 
     struct users users[MAX_USERS];
+    struct users admins[MAX_ADMINS];
 };
 
 /**

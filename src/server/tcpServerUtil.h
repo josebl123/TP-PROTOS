@@ -14,7 +14,9 @@
 #define CONNECT 1
 #define RSV 0
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
+#define MAX_ADDR_BUFFER 128
 
+static char addrBuffer[MAX_ADDR_BUFFER];
 enum socks5_auth_methods {
     AUTH_METHOD_NOAUTH = 0x00, // No authentication required
     AUTH_METHOD_PASSWORD = 0x02, // Username/password authentication
@@ -64,6 +66,15 @@ enum ADDRESS_TYPE {
 
 typedef struct clientData clientData;
 
+struct originInfo {
+  uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
+  union {
+    uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
+    struct in6_addr ipv6; // IPv6 address
+  } address;
+  uint16_t port; // Origin port
+};
+
  struct dnsReq{
     clientData * clientData; // Pointer to the client data structure
     struct gaicb request;
@@ -91,14 +102,7 @@ typedef struct clientData clientData;
     } address;
     uint16_t port; // Destination port
   } destination; // Destination information
-  struct origin_info {
-    uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
-    union {
-        uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
-        struct in6_addr ipv6; // IPv6 address
-    } address;
-    uint16_t port; // Origin port
-  } origin; // Origin information
+  struct originInfo origin; // Origin information
 
   int remoteSocket; // Socket for the remote connection
   buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
@@ -124,6 +128,8 @@ typedef struct {
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *addr, const int port);
 
+int setupTCPRemoteSocket(const struct destination_info *destination, struct selector_key *key);
+
 // Accept a new TCP connection on a server socket
 int acceptTCPConnection(int servSock);
 
@@ -135,15 +141,8 @@ void handleMasterClose(struct selector_key *key);
 void handleClientRead(struct selector_key *key);
 
 void handleTCPEchoClientClose(struct selector_key *key);
-
-
-unsigned connectWrite(struct selector_key *key);
-// Handle reading the request from the client
-unsigned handleRequestRead(struct selector_key *key);
-// Handle writing to the client socket
-unsigned handleRequestWrite(struct selector_key *key);
-
-unsigned handleDomainResolve(struct selector_key *key);
+void setResponseStatus(clientData *data, int error);
+int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct addrinfo *remoteAddrInfo);
 
 void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);

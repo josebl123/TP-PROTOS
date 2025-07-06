@@ -30,7 +30,7 @@ unsigned handleHelloRead(struct selector_key *key) {
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
-    bool acceptsNoAuth = false;
+    bool clientAcceptsNoAuth = false;
     if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT; // TODO definir codigos de error
@@ -53,10 +53,10 @@ unsigned handleHelloRead(struct selector_key *key) {
                 return HELLO_WRITE; // Cambiar al estado de escritura de saludo
             }
             if (authMethod == AUTH_METHOD_NOAUTH) {
-                acceptsNoAuth = true; // Si acepta autenticación sin contraseña
+                clientAcceptsNoAuth = true; // Si acepta autenticación sin contraseña
             }
         }
-        if (acceptsNoAuth) {
+        if (serverAcceptsNoAuth && clientAcceptsNoAuth) {
             data->authMethod = AUTH_METHOD_NOAUTH;
             log(INFO, "Selected authentication method: No Authentication");
             buffer_reset(data->clientBuffer);

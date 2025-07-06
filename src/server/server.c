@@ -30,9 +30,13 @@
 #define CONFIG_PORT "8080"
 #define INITIAL_MAX_CLIENTS 500
 #define MAX_BUFFER_SIZE 2048
+#define DEFAULT_TIMEOUT 5
 
 struct fdselector *selector = NULL; // Global selector variable
 struct socks5args *socksArgs = NULL; // Global args variable
+uint32_t bufferSize = MAX_BUFFER_SIZE; // Global buffer size
+bool serverAcceptsNoAuth = true; // Global flag for accepting connections without authentication
+
 void cleanup(const int signum) {
     // Handle cleanup on signal
     printf("Received signal %d, cleaning up...\n", signum);
@@ -42,8 +46,7 @@ void cleanup(const int signum) {
     }
     exit(EXIT_SUCCESS);
 }
-
-int main(int argc, char *argv[])
+int main( int argc, char *argv[])
 {
     socksArgs = malloc(sizeof(struct socks5args));
     parse_args(argc, argv, socksArgs); // Parse command line arguments
@@ -60,7 +63,7 @@ int main(int argc, char *argv[])
 
     const struct selector_init conf = {
         .signal = SIGUSR1,
-        .select_timeout = { .tv_sec = 5, .tv_nsec = 0 }
+        .select_timeout = { .tv_sec = DEFAULT_TIMEOUT, .tv_nsec = 0 } //TODO: esto es un timeout de 5 segundos, esta bien?
     };
     const selector_status status = selector_init(&conf);
     if(status != SELECTOR_SUCCESS) {

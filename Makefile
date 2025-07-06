@@ -21,6 +21,7 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/server/tcpServerConfigUtil.c \
        $(SRC_DIR)/utils/user_metrics_table.c \
        $(SRC_DIR)/utils/args.c \
+       $(SRC_DIR)/server/socksRequest.c
 
 # Source files for the tests
 TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \
