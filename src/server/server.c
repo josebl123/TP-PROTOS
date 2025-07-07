@@ -46,7 +46,7 @@ void cleanup(const int signum) {
     }
     exit(EXIT_SUCCESS);
 }
-int main( int argc, char *argv[])
+int main(const int argc, char *argv[])
 {
     socksArgs = malloc(sizeof(struct socks5args));
     parse_args(argc, argv, socksArgs); // Parse command line arguments

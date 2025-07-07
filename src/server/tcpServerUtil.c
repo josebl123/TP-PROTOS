@@ -134,7 +134,6 @@ int setupTCPServerSocket(const char *ip, const int port) {
     // Construct the server address structure
     struct addrinfo addrCriteria = {0};                   // Criteria for address match
     addrCriteria.ai_family = AF_UNSPEC;             // Any address family
-    // addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
     addrCriteria.ai_socktype = SOCK_STREAM;         // Only stream sockets
     addrCriteria.ai_protocol = IPPROTO_TCP;         // Only TCP protocol
     // Convertir el puerto a string
