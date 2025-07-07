@@ -10,7 +10,8 @@
 #include "../metrics/metrics.h"
 #include "utils/user_metrics_table.h"
 #include "server.h"
-#include <errno.h>
+
+#include "args.h"
 
 #define MAX_ADDR_BUFFER 128
 #define METRICS_BUF_CHUNK 4096
@@ -21,6 +22,9 @@
 #define STATUS_FAIL 0x01
 #define ROLE_USER 0x00
 #define ROLE_ADMIN 0x01
+#define MAX_USERNAME_LEN 64
+#define MAX_PASSWORD_LEN 64
+
 
 
 unsigned handleAuthConfigRead(struct selector_key *key) {
@@ -58,12 +62,6 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     buffer_read_ptr(data->clientBuffer, &available);
     if (available < data->userlen + data->passlen) return READ_CREDENTIALS;
 
-    // if (data->userlen >= sizeof(data->authInfo.username) || TODO:imposible que pase esto por el tamaño del buffer
-    //     data->passlen >= sizeof(data->authInfo.password)) {
-    //     log(ERROR, "Username or password too long, userlen=%u passlen=%u", data->userlen, data->passlen);
-    //     return CONFIG_DONE;
-    // }
-
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
     if (ptr == NULL || available < data->userlen) {
         log(ERROR, "Failed to read username from buffer");
@@ -85,11 +83,18 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     log(INFO, "Received username: %s", data->authInfo.username);
     log(INFO, "Received password: %s", data->authInfo.password);
 
-    if (strcmp(data->authInfo.username, "admi") == 0 && strcmp(data->authInfo.password, "userpass") == 0) {
-        data->role = ROLE_ADMIN;
-    } else if (strcmp(data->authInfo.username, "user") == 0 && strcmp(data->authInfo.password, "userpass") == 0) {
-        data->role = ROLE_USER;
-    } else {
+    if (socksArgs == NULL) { log(ERROR, "socksArgs is NULL"); return CONFIG_DONE; }
+
+    bool found = false;
+    for (size_t i = 0; socksArgs->users[i].name != NULL && i < MAX_USERS; i++) {
+        if (strncmp(socksArgs->users[i].name, data->authInfo.username, MAX_USERNAME_LEN) == 0 &&
+            strncmp(socksArgs->users[i].pass, data->authInfo.password, MAX_PASSWORD_LEN) == 0) {
+            found = true;
+            data->role = socksArgs->users[i].is_admin ? ROLE_ADMIN : ROLE_USER;
+            break;
+            }
+    }
+    if (!found) {
         data->role = ROLE_INVALID;
     }
 
@@ -125,7 +130,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
         data->role == ROLE_ADMIN ? "ADMIN" : "USER");
 
     selector_set_interest_key(key, OP_WRITE);
-    return (data->role == ROLE_ADMIN) ? ADMIN_MENU_SEND : USER_METRICS;
+    return (data->role == ROLE_ADMIN) ? ADMIN_INITIAL_REQUEST_READ : USER_METRICS;
 }
 
 unsigned handleUserMetricsWrite(struct selector_key *key) {
@@ -136,12 +141,16 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         size_t bufsize = METRICS_BUF_CHUNK;
         char *buffer = malloc(bufsize);
         if (!buffer) {
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
 
         FILE *memfile = fmemopen(buffer, bufsize, "w");
         if (!memfile) {
             free(buffer);
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
 
@@ -150,11 +159,12 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
             log(ERROR, "User metrics not found for %s", data->authInfo.username);
             fclose(memfile);
             free(buffer);
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
 
         log(INFO, "Found metrics for user %s, tree root: %p", data->authInfo.username, (void *) um->connections_tree.root);
-
 
         print_user_metrics_tabbed(um, data->authInfo.username, memfile);
         fflush(memfile);
@@ -170,6 +180,8 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
     const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
     if (sent < 0) {
+        uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+        send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
         return CONFIG_DONE;
     }
 
@@ -181,6 +193,8 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         data->metrics_buf_len = 0;
         data->metrics_buf_offset = 0;
 
+        uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x00 }; // success
+        send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
         return CONFIG_DONE;
     }
 
@@ -196,212 +210,7 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
     selector_unregister_fd(key->s, key->fd);
     close(key->fd);
 }
-unsigned handleAdminMenuInitialWrite(struct selector_key *key) {
-    int clntSocket = key->fd;
 
-    const char *menu =
-        "=== Admin Menu ===\n"
-        "1) Ver métricas globales\n"
-        "2) Ver metricas de un usuario\n"
-        "3) Entrar a configuración del servidor\n"
-        "4) Salir (elegir 4 y apretar dos veces enter)\n" //TODO: FIX THIS
-        "Seleccione una opción: ";
-
-    const ssize_t sent = send(clntSocket, menu, strlen(menu), MSG_DONTWAIT);
-    if (sent < 0) {
-        log(ERROR, "send() failed in admin menu write");
-        return CONFIG_DONE;
-    }
-
-    selector_set_interest_key(key, OP_READ);
-    return ADMIN_MENU_READ;
-}
-
-unsigned handleAdminMenuRead(struct selector_key *key) {
-    log(INFO, "Entered ADMIN_MENU_READ");
-    clientConfigData *data = key->data;
-    int clntSocket = key->fd;
-
-    size_t writeLimit;
-    uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
-    if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed: %s", strerror(errno));
-        return CONFIG_DONE;
-    }
-    if (numBytesRcvd == 0) {
-        log(INFO, "Client closed connection");
-        return CONFIG_DONE;
-    }
-
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
-
-    size_t avail;
-    uint8_t *read_ptr = buffer_read_ptr(data->clientBuffer, &avail);
-    if (avail == 0) return ADMIN_MENU_READ;
-
-    // Busco un carácter válido (ignoro '\n', '\r' y espacios)
-    char opt = '\0';
-    while (avail > 0) {
-        char c = (char)*read_ptr;
-        buffer_read_adv(data->clientBuffer, 1);
-        avail--;
-        if (c != '\n' && c != '\r' && c != ' ') {
-            opt = c;
-            break;
-        }
-        read_ptr = buffer_read_ptr(data->clientBuffer, &avail);
-    }
-
-    if (opt == '\0') {
-        selector_set_interest_key(key, OP_READ);
-        return ADMIN_MENU_READ; // Esperá más input
-    }
-
-    log(INFO, "Admin option received: %c", opt);
-
-    switch (opt) {
-        case '1': //TODO: MAGIC NUMBERS
-            selector_set_interest_key(key, OP_WRITE);
-            return ADMIN_METRICS_SEND;
-        case '2':
-            selector_set_interest_key(key, OP_WRITE);
-            return ADMIN_SCOPE_MENU_SEND;
-        case '3':
-            return ADMIN_CONFIG_READ;
-        case '4':
-            buffer_reset(data->clientBuffer);  // <<< Limpia el buffer
-            return CONFIG_DONE;
-        default: {
-            const char *msg = "Opción inválida.\nSeleccione una opción: ";
-            send(clntSocket, msg, strlen(msg), MSG_DONTWAIT);
-            buffer_reset(data->clientBuffer);  // <<< Limpia el buffer
-            selector_set_interest_key(key, OP_READ);
-            return ADMIN_MENU_READ;
-        }
-    }
-}
-
-
-unsigned handleAdminScopeMenuWrite(struct selector_key *key) {
-    int clntSocket = key->fd;
-
-    const char *prompt = "Ingrese el nombre de usuario: ";
-
-    ssize_t sent = send(clntSocket, prompt, strlen(prompt), MSG_DONTWAIT);
-    if (sent < 0) {
-        log(ERROR, "send() failed in handleAdminScopeMenuWrite");
-        return CONFIG_DONE;
-    }
-
-    selector_set_interest_key(key, OP_READ);
-    return ADMIN_SCOPE_READ;
-}
-
-
-unsigned handleAdminScopeRead(struct selector_key *key) {
-    log(INFO, "Entered handleAdminScopeRead");
-    clientConfigData *data = key->data;
-    int clntSocket = key->fd;
-
-    size_t writeLimit;
-    uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
-    if (numBytesRcvd <= 0) {
-        log(ERROR, "recv() failed or connection closed");
-        return CONFIG_DONE;
-    }
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
-
-    size_t avail;
-    const uint8_t *read_ptr = buffer_read_ptr(data->clientBuffer, &avail);
-
-    // Busco \n o \r
-    size_t i;
-    for (i = 0; i < avail; i++) {
-        if (read_ptr[i] == '\n' || read_ptr[i] == '\r') {
-            break;
-        }
-    }
-
-    // Si no encontré el final de línea aún, espero más input
-    if (i == avail) {
-        selector_set_interest_key(key, OP_READ);
-        return ADMIN_SCOPE_READ;
-    }
-
-    // i ahora es la posición del \n
-    const size_t copyLen = (i < sizeof(data->target_username) - 1) ? i : sizeof(data->target_username) - 1;
-
-    memset(data->target_username, 0, sizeof(data->target_username));
-    memcpy(data->target_username, read_ptr, copyLen);
-    data->target_username[copyLen] = '\0';
-
-    buffer_read_adv(data->clientBuffer, i + 1);  // Saltea \n o \r también
-
-    log(INFO, "Admin selected user: %s", data->target_username);
-
-    selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_SCOPE_WRITE;
-}
-
-
-
-unsigned handleAdminScopeWrite(struct selector_key * key) {
-    clientConfigData *data = key->data;
-    int clntSocket = key->fd;
-
-    if (data->metrics_buf == NULL) {
-        size_t bufsize = METRICS_BUF_CHUNK;
-        char *buffer = malloc(bufsize);
-        if (!buffer) {
-            return CONFIG_DONE;
-        }
-
-        FILE *memfile = fmemopen(buffer, bufsize, "w");
-        if (!memfile) {
-            free(buffer);
-            return CONFIG_DONE;
-        }
-
-        user_metrics *um = get_or_create_user_metrics("admi"); //TODO: THIS IS HARDCODDED TO TEST IT
-        if (!um) {
-            const char *msg = "Usuario no encontrado.\n";
-            send(clntSocket, msg, strlen(msg), MSG_DONTWAIT);
-            fclose(memfile);
-            free(buffer);
-            return ADMIN_MENU_SEND;
-        }
-
-        print_user_metrics_tabbed(um, "admi", memfile); //TODO: THIS IS HARDCODDED TO TEST IT
-        fflush(memfile);
-        size_t written = ftell(memfile);
-        fclose(memfile);
-
-        data->metrics_buf = buffer;
-        data->metrics_buf_len = written;
-        data->metrics_buf_offset = 0;
-    }
-
-    size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
-    if (sent < 0) return CONFIG_DONE;
-
-    data->metrics_buf_offset += sent;
-
-    if (data->metrics_buf_offset >= data->metrics_buf_len) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-
-        buffer_reset(data->clientBuffer);  // <<< AGREGÁ ESTO
-        return ADMIN_MENU_SEND;
-    }
-
-
-    return ADMIN_SCOPE_WRITE;
-}
 
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
@@ -444,19 +253,363 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         data->metrics_buf_len = 0;
         data->metrics_buf_offset = 0;
 
-        buffer_reset(data->clientBuffer);  // <<< AGREGÁ ESTO TAMBIÉN
-        return ADMIN_MENU_SEND;  // Volver al menú
+        buffer_reset(data->clientBuffer); // limpiar buffer para próxima lectura
+        return ADMIN_MENU_READ;           // ← volvemos al menú
     }
 
     return ADMIN_METRICS_SEND;
 }
 
+unsigned handleAdminInitialRequestRead(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
 
-unsigned handleAdminConfigRead(struct selector_key * key) {
-    return 1;
-}unsigned handleAdminConfigWrite(struct selector_key * key) {
-    return 1;
+    if (available < 4) return ADMIN_INITIAL_REQUEST_READ;
+
+    uint8_t version = ptr[0];
+    uint8_t rsv = ptr[1];
+    uint8_t cmd = ptr[2]; // 0=stats, 1=config
+    uint8_t ulen = ptr[3];
+
+    if (available < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
+
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    if (ulen > 0) memcpy(username, ptr + 4, ulen);
+
+    buffer_read_adv(data->clientBuffer, 4 + ulen);
+
+    // Save info in clientData
+    data->admin_cmd = cmd;
+    strncpy(data->target_username, username, sizeof(data->target_username));
+
+    uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
+
+    if (cmd == 0) { // STATS
+        response[2] = 0x00; // stats success
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        selector_set_interest_key(key, OP_WRITE);
+        return ADMIN_METRICS_SEND;
+    }
+    if (cmd == 1) {
+        response[2] = 0x01; // config success
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        selector_set_interest_key(key, OP_READ);
+        return ADMIN_COMMAND_READ;
+    }
+    response[2] = 0xFF; // invalid command
+    send(fd, response, sizeof(response), MSG_DONTWAIT);
+    return CONFIG_DONE;
 }
+
+unsigned handleAdminConfigRead(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+
+    if (available < 6) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte), 3 bytes relleno
+
+    uint8_t version = ptr[0];
+    uint8_t rsv = ptr[1];
+    uint8_t code = ptr[2];
+    data->admin_cmd = code;
+
+    buffer_read_adv(data->clientBuffer, 6); // avanzar 6 bytes (version, rsv, code, 3 relleno)
+
+    switch (code) {
+        case 0x00: // change buffer size
+            return ADMIN_BUFFER_SIZE_CHANGE;
+
+        case 0x01: // accepts-no-auth
+            return ADMIN_ACCEPTS_NO_AUTH;
+
+        case 0x02: // not-accepts-no-auth
+            return ADMIN_REJECTS_NO_AUTH;
+
+        case 0x03: // add-user
+        case 0x04: // remove-user
+        case 0x05: // make-admin
+            return ADMIN_COMMAND_READ;
+
+        default:
+            log(ERROR, "Unknown admin config command code: %u", code);
+            return CONFIG_DONE;
+    }
+}
+
+unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    if (available < 6) return ADMIN_BUFFER_SIZE_CHANGE;
+
+    uint32_t new_buf_size = ntohl(*(uint32_t *)(ptr + 2)); // salteamos VERSION, RSV
+
+    if (new_buf_size < 1024 || new_buf_size > 65536) {
+        log(ERROR, "Invalid buffer size: %u", new_buf_size);
+        uint8_t response[6] = { CONFIG_VERSION, 0x00, 0x01, 0x00, 0x00, 0x00 };  // 0x00 = código de cambio de buffer
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        return CONFIG_DONE;
+    }
+
+
+    buffer_read_adv(data->clientBuffer, 6);
+
+    bufferSize = new_buf_size;
+
+    uint8_t response[6] = { CONFIG_VERSION, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    send(fd, response, sizeof(response), MSG_DONTWAIT);
+
+    return CONFIG_DONE;
+}
+
+unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
+    serverAcceptsNoAuth = true;
+
+    uint8_t response[6] = { CONFIG_VERSION, 0x01, 0x00, 0x00, 0x00, 0x00 };
+    send(key->fd, response, sizeof(response), MSG_DONTWAIT);
+
+    return CONFIG_DONE;
+}
+
+unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
+    serverAcceptsNoAuth = false;
+
+    uint8_t response[6] = { CONFIG_VERSION, 0x02, 0x00, 0x00, 0x00, 0x00 };
+    send(key->fd, response, sizeof(response), MSG_DONTWAIT);
+
+    return CONFIG_DONE;
+}
+
+unsigned addUser(char * username, char *password, bool is_admin) {
+    if (socksArgs == NULL || socksArgs->users == NULL) {
+        log(ERROR, "socksArgs or users array is NULL");
+        return false;
+    }
+
+    for (size_t i = 0; i < MAX_USERS; i++) {
+        if (socksArgs->users[i].name == NULL) {
+            // Found an empty slot
+            strncpy(socksArgs->users[i].name, username, MAX_USERNAME_LEN);
+            strncpy(socksArgs->users[i].pass, password, MAX_PASSWORD_LEN);
+            socksArgs->users[i].is_admin = is_admin;
+            return true;
+        }
+    }
+    log(ERROR, "User limit reached, cannot add more users");
+    return false;
+}
+
+unsigned handleAdminAddUserWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    if (available < 4) return ADMIN_ADD_USER;
+
+    uint8_t ulen = ptr[2];
+    uint8_t plen = ptr[3];
+    if (available < 4 + ulen + plen) return ADMIN_ADD_USER;
+
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    char password[MAX_PASSWORD_LEN + 1] = {0};
+
+    memcpy(username, ptr + 4, ulen);
+    memcpy(password, ptr + 4 + ulen, plen);
+
+    buffer_read_adv(data->clientBuffer, 4 + ulen + plen);
+
+    if (addUser(username, password, false)) {
+        uint8_t response[6] = { CONFIG_VERSION, 0x03, 0x00, 0x00, 0x00, 0x00 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    } else {
+        log(ERROR, "Failed to add user %s", username);
+        uint8_t response[6] = { CONFIG_VERSION, 0x03, 0x01, 0x00, 0x00, 0x00 };  // STATUS = 0x01 (fail)
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    }
+
+    // buffer_reset(data->clientBuffer);
+    // selector_set_interest_key(key, OP_READ);
+    // return ADMIN_MENU_READ;
+    return CONFIG_DONE; //TODO: lo hacemos persistnece?
+}
+
+int removeUser(char * username) {
+        if (socksArgs == NULL || socksArgs->users == NULL) {
+        log(ERROR, "socksArgs or users array is NULL");
+        return false;
+    }
+
+    for (size_t i = 0; i < MAX_USERS; i++) {
+        if (socksArgs->users[i].name != NULL && strncmp(socksArgs->users[i].name, username, MAX_USERNAME_LEN) == 0) {
+            // Found the user to remove
+            socksArgs->users[i].name[0] = '\0'; // Clear the username
+            socksArgs->users[i].pass[0] = '\0'; // Clear the password
+            socksArgs->users[i].is_admin = false; // Clear admin status
+            return true;
+        }
+    }
+    log(ERROR, "User %s not found", username);
+    return false;
+
+}
+
+unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    if (available < 3) return ADMIN_REMOVE_USER;
+
+    uint8_t ulen = ptr[2];
+    if (available < 3 + ulen) return ADMIN_REMOVE_USER;
+
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    memcpy(username, ptr + 3, ulen);
+    buffer_read_adv(data->clientBuffer, 3 + ulen);
+
+    if (removeUser(username)) {
+        uint8_t response[6] = { CONFIG_VERSION, 0x04, 0x00, 0x00, 0x00, 0x00 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    } else {
+        log(ERROR, "Failed to remove user %s", username);
+        uint8_t response[6] = { CONFIG_VERSION, 0x04, 0x01, 0x00, 0x00, 0x00 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    }
+
+
+    // buffer_reset(data->clientBuffer);
+    // selector_set_interest_key(key, OP_READ);
+    // return ADMIN_MENU_READ;
+    return CONFIG_DONE; //TODO: lo hacemos persistnece?
+}
+
+int makeAdmin(char * username) {
+    if (socksArgs == NULL || socksArgs->users == NULL) {
+        log(ERROR, "socksArgs or users array is NULL");
+        return false;
+    }
+
+    for (size_t j = 0; j < MAX_ADMINS; j++) {
+        if (socksArgs->admins[j].name != NULL &&
+            strncmp(socksArgs->admins[j].name, username, MAX_USERNAME_LEN) == 0) {
+            log(ERROR, "User %s is already an admin", username);
+            return false;
+            }
+    }
+
+    // Busca el usuario y un slot libre en admins
+    int user_idx = -1;
+    int admin_slot = -1;
+    for (size_t i = 0; i < MAX_USERS; i++) {
+        if (socksArgs->users[i].name != NULL &&
+            strncmp(socksArgs->users[i].name, username, MAX_USERNAME_LEN) == 0) {
+            user_idx = i;
+            break;
+            }
+    }
+    for (size_t j = 0; j < MAX_ADMINS; j++) {
+        if (socksArgs->admins[j].name == NULL) {
+            admin_slot = j;
+            break;
+        }
+    }
+
+    if (user_idx == -1) {
+        log(ERROR, "User %s not found", username);
+        return false;
+    }
+    if (admin_slot == -1) {
+        log(ERROR, "Admin limit reached, cannot promote %s", username);
+        return false;
+    }
+
+    // Promueve al usuario a admin
+    strncpy(socksArgs->admins[admin_slot].name, username, MAX_USERNAME_LEN);
+    socksArgs->admins[admin_slot].is_admin = true;
+    socksArgs->users[user_idx].is_admin = true;
+    log(INFO, "User %s promoted to admin", username);
+    return true;
+}
+unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    if (available < 3) return ADMIN_MAKE_ADMIN;
+
+    uint8_t ulen = ptr[2];
+    if (available < 3 + ulen) return ADMIN_MAKE_ADMIN;
+
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    memcpy(username, ptr + 3, ulen);
+    buffer_read_adv(data->clientBuffer, 3 + ulen);
+
+    if (makeAdmin(username)) {
+        uint8_t response[6] = { CONFIG_VERSION, 0x05, 0x00, 0x00, 0x00, 0x00 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    } else {
+        log(ERROR, "Failed to promote user %s to admin", username);
+        uint8_t response[6] = { CONFIG_VERSION, 0x05, 0x01, 0x00, 0x00, 0x00 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    }
+
+
+    return CONFIG_DONE;
+}
+
+unsigned handleAdminMenuRead(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+
+    if (available < 4) return ADMIN_MENU_READ;
+
+    uint8_t version = ptr[0];
+    uint8_t rsv = ptr[1];
+    uint8_t cmd = ptr[2]; // 0=stats, 1=config
+    uint8_t ulen = ptr[3];
+
+    if (available < 4 + ulen) return ADMIN_MENU_READ;
+
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    if (ulen > 0) memcpy(username, ptr + 4, ulen);
+
+    buffer_read_adv(data->clientBuffer, 4 + ulen);
+
+    // Guardar datos en estructura
+    data->admin_cmd = cmd;
+    strncpy(data->target_username, username, sizeof(data->target_username));
+
+    uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
+
+    if (cmd == 0) { // STATS
+        response[2] = 0x00;
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        selector_set_interest_key(key, OP_WRITE);
+        return ADMIN_METRICS_SEND;
+    }
+    if (cmd == 1) { // CONFIG
+        response[2] = 0x01;
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        selector_set_interest_key(key, OP_READ);
+        return ADMIN_COMMAND_READ;
+    }
+    response[2] = 0xFF;
+    send(fd, response, sizeof(response), MSG_DONTWAIT);
+    return CONFIG_DONE;
+}
+
+
+
 
 
 static const struct state_definition states_config[] = {
@@ -472,40 +625,46 @@ static const struct state_definition states_config[] = {
         .state = USER_METRICS,
         .on_write_ready = handleUserMetricsWrite,
     },
-    [ADMIN_MENU_SEND] = {
-        .state = ADMIN_MENU_SEND,
-        .on_write_ready = handleAdminMenuInitialWrite,
+    [ADMIN_INITIAL_REQUEST_READ] = {
+        .state = ADMIN_INITIAL_REQUEST_READ,
+        .on_read_ready = handleAdminInitialRequestRead,
+    },
+    [ADMIN_METRICS_SEND] = {
+        .state = ADMIN_METRICS_SEND,
+        .on_write_ready = handleAdminMetricsWrite,  // o handleAdminScopeWrite si es user
+    },
+    [ADMIN_COMMAND_READ] = {
+        .state = ADMIN_COMMAND_READ,
+        .on_read_ready = handleAdminConfigRead,
+    },
+    [ADMIN_BUFFER_SIZE_CHANGE] = {
+        .state = ADMIN_BUFFER_SIZE_CHANGE,
+        .on_write_ready = handleAdminBufferSizeChangeWrite,
+    },
+    [ADMIN_ACCEPTS_NO_AUTH] = {
+        .state = ADMIN_ACCEPTS_NO_AUTH,
+        .on_write_ready = handleAdminAcceptsNoAuthWrite,
+    },
+    [ADMIN_REJECTS_NO_AUTH] = {
+        .state = ADMIN_REJECTS_NO_AUTH,
+        .on_write_ready = handleAdminRejectsNoAuthWrite,
+    },
+    [ADMIN_ADD_USER] = {
+        .state = ADMIN_ADD_USER,
+        .on_write_ready = handleAdminAddUserWrite,
+    },
+    [ADMIN_REMOVE_USER] = {
+        .state = ADMIN_REMOVE_USER,
+        .on_write_ready = handleAdminRemoveUserWrite,
+    },
+    [ADMIN_MAKE_ADMIN] = {
+        .state = ADMIN_MAKE_ADMIN,
+        .on_write_ready = handleAdminMakeAdminWrite,
     },
     [ADMIN_MENU_READ] = {
         .state = ADMIN_MENU_READ,
         .on_read_ready = handleAdminMenuRead,
     },
-    [ADMIN_SCOPE_READ] = {
-        .state = ADMIN_SCOPE_READ,
-        .on_read_ready = handleAdminScopeRead,
-    },
-    [ADMIN_SCOPE_MENU_SEND] = {
-        .state = ADMIN_SCOPE_MENU_SEND,
-        .on_write_ready = handleAdminScopeMenuWrite,
-    },
-    [ADMIN_SCOPE_WRITE] = {
-        .state = ADMIN_SCOPE_WRITE,
-        .on_write_ready = handleAdminScopeWrite,
-    },
-    [ADMIN_METRICS_SEND] = {
-        .state = ADMIN_METRICS_SEND,
-        .on_write_ready = handleAdminMetricsWrite,
-    },
-    [ADMIN_CONFIG_READ] = {
-        .state = ADMIN_CONFIG_READ,
-        .on_read_ready = handleAdminConfigRead,
-    },
-    [ADMIN_CONFIG_WRITE] = {
-        .state = ADMIN_CONFIG_WRITE,
-        .on_write_ready = handleAdminConfigWrite,
-    },
-
-
     [CONFIG_DONE] = {
         .state = CONFIG_DONE,
         .on_arrival = handleConfigDone,

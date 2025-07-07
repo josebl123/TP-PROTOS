@@ -14,22 +14,35 @@ void config_read(struct selector_key *key);
 void config_write(struct selector_key *key);
 int acceptTCPConfigConnection(int servSock);
 
-// Estados de la máquina de estados MAEP-S5
+#define MAX_USERNAME_LEN 64
+#define MAX_PASSWORD_LEN 64
+
 typedef enum {
-    READ_CREDENTIALS,
-    AUTH_DONE,
-    USER_METRICS,
-    ADMIN_MENU_SEND,
-    ADMIN_MENU_READ,
-    ADMIN_SCOPE_READ,
-    ADMIN_SCOPE_MENU_SEND,
-    ADMIN_SCOPE_WRITE,
-    ADMIN_METRICS_SEND,
-    ADMIN_CONFIG_READ,
-    ADMIN_CONFIG_WRITE,
-    CONFIG_DONE,
-    ERROR_CONFIG_CLIENT
+    READ_CREDENTIALS,         // Recibir: VERSION RSV ULEN USER PLEN PASS
+    AUTH_DONE,                // Enviar resultado de autenticación
+
+    // USER: métricas personales
+    USER_METRICS,             // Enviar métricas del usuario autenticado
+
+    // ADMIN
+    ADMIN_INITIAL_REQUEST_READ,  // VERSION RSV CMD ULEN USERNAME (CMD = 0 stats, 1 config)
+    ADMIN_METRICS_SEND,          // Enviar métricas globales o de usuario
+
+    ADMIN_COMMAND_READ,          // Esperar comandos de configuración
+    ADMIN_MENU_READ,           // Nuevo estado: espera nuevo comando del admin
+
+
+    ADMIN_BUFFER_SIZE_CHANGE,    // Cambiar tamaño de buffer
+    ADMIN_ACCEPTS_NO_AUTH,       // Cambiar flag no-auth on
+    ADMIN_REJECTS_NO_AUTH,       // Cambiar flag no-auth off
+    ADMIN_ADD_USER,              // Agregar usuario
+    ADMIN_REMOVE_USER,           // Quitar usuario
+    ADMIN_MAKE_ADMIN,            // Convertir usuario en admin
+
+    CONFIG_DONE,                 // Finaliza sesión/config
+    ERROR_CONFIG_CLIENT          // Error fatal
 } config_state;
+
 
 // Información del cliente en la conexión de configuración
 typedef struct {
@@ -47,7 +60,8 @@ typedef struct {
     char *metrics_buf;
     size_t metrics_buf_len;
     size_t metrics_buf_offset;
-    char target_username[128];
+    uint8_t admin_cmd; // 0 = stats, 1 = config
+    char target_username[MAX_USERNAME_LEN];
 } clientConfigData;
 
 #endif
