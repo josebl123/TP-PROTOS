@@ -33,13 +33,17 @@ void socks5_relay_write(struct selector_key *key);
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
 void handleTcpClose(  struct selector_key *key) {
-    log(INFO, "Closing client socket %d", key->fd);
+    log(INFO, "TCP Closing client socket %d", key->fd);
     clientData *data =  key->data;
 
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
 
     free(data->clientBuffer->data);
     free(data->clientBuffer);
+    if (data->remoteBuffer) {
+        free(data->remoteBuffer->data);
+        free(data->remoteBuffer);
+    }
     free(data);
     // Close the client socket
     close(key->fd);
@@ -49,8 +53,6 @@ void handleRemoteClose( struct selector_key *key) {
     remoteData *data = key->data;
 
     free(data->stm);
-    free(data->buffer->data); // Liberar memoria del buffer
-    free(data->buffer); // Liberar memoria del buffer
     free(data); // Liberar memoria de remoteData
     close(key->fd);
 }
@@ -62,7 +64,6 @@ void clientClose(const unsigned state, struct selector_key *key) {
     }
     clientData *data =  key->data;
     data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
-    log(INFO, "USER: %s", data->authInfo.username);
     user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
 
     char time_str[64];
@@ -93,7 +94,6 @@ void remoteClose(const unsigned state, struct selector_key *key) {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
-    close(key->fd); // Cerrar el socket remoto
 }
 
  static const struct state_definition states[] = {
@@ -134,7 +134,6 @@ int setupTCPServerSocket(const char *ip, const int port) {
     // Construct the server address structure
     struct addrinfo addrCriteria = {0};                   // Criteria for address match
     addrCriteria.ai_family = AF_UNSPEC;             // Any address family
-    // addrCriteria.ai_flags = AI_PASSIVE;             // Accept on any address/port
     addrCriteria.ai_socktype = SOCK_STREAM;         // Only stream sockets
     addrCriteria.ai_protocol = IPPROTO_TCP;         // Only TCP protocol
     // Convertir el puerto a string
@@ -207,7 +206,7 @@ int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct ad
     remoteBuffer->data = malloc(bufferSize); // Allocate memory for the buffer data
     if (remoteBuffer->data == NULL) {
         log(ERROR, "Failed to allocate memory for remote buffer data");
-        free(remoteBuffer);
+//        free(remoteBuffer); //todo i think i do this in the close, god help me
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
         return -1; // TODO definir codigos de error
     }
@@ -215,8 +214,8 @@ int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct ad
     remoteData *rData = malloc(sizeof(remoteData)); // Create a remoteData structure
     if (rData == NULL) {
         log(ERROR, "Failed to allocate memory for remoteData");
-        free(remoteBuffer->data);
-        free(remoteBuffer);
+//        free(remoteBuffer->data);
+//        free(remoteBuffer);
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
         return -1; // TODO definir codigos de error
     }
@@ -236,8 +235,8 @@ int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct ad
     // Register the remote socket with the selector
     if (selector_register(key->s, remoteSocket, &relay_handler, OP_WRITE, rData) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
-        free(rData->buffer->data); // Free the buffer data
-        free(rData->buffer); // Free the buffer
+//        free(rData->buffer->data); // Free the buffer data
+//        free(rData->buffer); // Free the buffer
         free(rData); // Free the remoteData structure
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
         close(remoteSocket);
@@ -294,10 +293,10 @@ void getAddrInfoCallBack(union sigval sigval) {
         }
         data->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
         metrics_add_server_error();
+        data->addressResolved = 1; // Mark the address as resolved (failed)
         if (selector_notify_block(req->fdSelector, req->fd) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to notify selector for fd %d", req->fd);
         }
-        data->addressResolved = 1; // Mark the address as resolved (failed)
         return; // Exit if getaddrinfo failed
     }
 
@@ -312,7 +311,7 @@ void getAddrInfoCallBack(union sigval sigval) {
 }
 
 
-int setupTCPRemoteSocket(const struct destination_info *destination,  struct selector_key * key) {
+int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct selector_key * key) {
     clientData *data = key->data; // Get the client data from the key
     int remoteSock = -1;
     // Connect to the remote address
@@ -499,6 +498,7 @@ int initializeClientData(clientData *data) {
     buffer_init(buf, bufferSize, buf->data); // Initialize the buffer
 
     data->clientBuffer = buf;
+    data->remoteBuffer = NULL; // Initialize remote buffer to NULL
 
     struct dnsReq *dnsRequest = malloc(sizeof(struct dnsReq));
     if (dnsRequest == NULL) {

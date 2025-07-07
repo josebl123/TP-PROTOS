@@ -285,8 +285,6 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
         }
     }
 
-    data->addressResolved = 1; // Indicate that the address is resolved
-
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }
 
@@ -336,8 +334,6 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
         }
     }
-
-    data->addressResolved = 1; // Indicate that the address is resolved
 
     return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
 }

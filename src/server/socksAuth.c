@@ -12,12 +12,9 @@
 #include <string.h>
 #include <sys/socket.h>
 
-#include <unistd.h>
-#include <stdint.h>
 #include "utils/user_metrics_table.h"
 #include <time.h>
 #include "../metrics/metrics.h"
-#include <arpa/inet.h>
 
 
 unsigned handleHelloRead(struct selector_key *key) {
@@ -163,7 +160,7 @@ unsigned handleAuthRead(struct selector_key *key) {
 }
 
 unsigned handleAuthWrite(struct selector_key *key) {
-    int clntSocket = key->fd; // Socket del cliente
+    const int clntSocket = key->fd; // Socket del cliente
     clientData *data =  key->data;
 
     // Enviar respuesta de autenticación al cliente

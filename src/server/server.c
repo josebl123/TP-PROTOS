@@ -28,7 +28,7 @@
 #define FALSE  0
 #define PORT "1080"
 #define CONFIG_PORT "8080"
-#define INITIAL_MAX_CLIENTS 500
+#define INITIAL_MAX_CLIENTS 1000
 #define MAX_BUFFER_SIZE 2048
 #define DEFAULT_TIMEOUT 5
 
@@ -46,7 +46,7 @@ void cleanup(const int signum) {
     }
     exit(EXIT_SUCCESS);
 }
-int main( int argc, char *argv[])
+int main(const int argc, char *argv[])
 {
     socksArgs = malloc(sizeof(struct socks5args));
     parse_args(argc, argv, socksArgs); // Parse command line arguments

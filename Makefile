@@ -1,6 +1,8 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g -Isrc/utils -D_GNU_SOURCE
+SAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer
 BIN = server
+CLIENT_BIN = client
 TEST_BIN = test_program
 SRC_DIR = src
 OBJ_DIR = obj
@@ -23,6 +25,20 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/utils/args.c \
        $(SRC_DIR)/server/socksRequest.c
 
+# Source files for the client
+CLIENT_SRCS = $(SRC_DIR)/client/client.c \
+              $(SRC_DIR)/utils/util.c \
+              $(SRC_DIR)/utils/logger.c \
+              $(SRC_DIR)/client/args.c \
+              $(SRC_DIR)/client/tcpClientUtil.c \
+              $(SRC_DIR)/buffer.c \
+              $(SRC_DIR)/stm.c \
+              $(SRC_DIR)/selector.c \
+              $(SRC_DIR)/utils/netutils.c \
+              $(SRC_DIR)/client/clientAuth.c \
+              $(SRC_DIR)/client/clientRequest.c \
+              $(SRC_DIR)/client/clientConfig.c \
+
 # Source files for the tests
 TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \
        $(SRC_DIR)/buffer.c \
@@ -39,6 +55,7 @@ TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \
 
 # Object files
 SERVER_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SERVER_SRCS))
+CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(CLIENT_SRCS))
 TEST_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(TEST_SRCS))
 
 # Include directories
@@ -48,19 +65,25 @@ INCLUDES = -I$(SRC_DIR)
 CHECK_FLAGS = $(shell pkg-config --cflags --libs check)
 
 # Ensure the directories exist
-DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/test $(OBJ_DIR)/metrics
-.PHONY: all clean test
+DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/client $(OBJ_DIR)/test $(OBJ_DIR)/metrics
+.PHONY: all clean test client runclient
 
-all: dirs $(BIN_DIR)/$(BIN)
+all: dirs $(BIN_DIR)/$(BIN) $(BIN_DIR)/$(CLIENT_BIN)
 
 test: dirs $(BIN_DIR)/$(TEST_BIN)
+
+client: dirs $(BIN_DIR)/$(CLIENT_BIN)
 
 dirs:
 	mkdir -p $(DIRS)
 
 # Main server target
 $(BIN_DIR)/$(BIN): $(SERVER_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl
+	$(CC) $(CFLAGS) $(SAN_FLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl $(SAN_FLAGS)
+
+# Client target
+$(BIN_DIR)/$(CLIENT_BIN): $(CLIENT_OBJS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread
 
 # Test target
 $(BIN_DIR)/$(TEST_BIN): $(TEST_OBJS)
@@ -77,6 +100,10 @@ clean:
 # Run the server
 run: all
 	./$(BIN_DIR)/$(BIN)
+
+# Run the client
+runclient: client
+	./$(BIN_DIR)/$(CLIENT_BIN)
 
 # Run the tests
 runtest: test
