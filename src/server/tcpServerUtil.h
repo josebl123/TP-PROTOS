@@ -75,7 +75,22 @@ struct originInfo {
   uint16_t port; // Origin port
 };
 
- struct dnsReq{
+struct destinationInfo {
+    uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
+    union {
+        uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
+        struct in6_addr ipv6; // IPv6 address
+        char domainName[256]; // Domain name
+    } address;
+    uint16_t port; // Destination port
+};
+
+struct authInfo {
+    char username[256];
+    char password[256];
+};
+
+struct dnsReq{
     clientData * clientData; // Pointer to the client data structure
     struct gaicb request;
     fd_selector fdSelector;
@@ -88,20 +103,10 @@ struct originInfo {
   buffer * clientBuffer;
   struct state_machine *stm; // Pointer to the state machine
   uint8_t authMethod;
-  struct auth_info {
-    char username[256];
-    char password[256];
-  } authInfo; // Authentication information
+  struct authInfo authInfo; // Authentication information
 
-  struct destination_info {
-    uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
-    union {
-        uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
-        struct in6_addr ipv6; // IPv6 address
-        char domainName[256]; // Domain name
-    } address;
-    uint16_t port; // Destination port
-  } destination; // Destination information
+  struct destinationInfo destination; // Destination information
+
   struct originInfo origin; // Origin information
 
   int remoteSocket; // Socket for the remote connection
@@ -128,7 +133,7 @@ typedef struct {
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *addr, const int port);
 
-int setupTCPRemoteSocket(const struct destination_info *destination, struct selector_key *key);
+int setupTCPRemoteSocket(const struct destinationInfo *destination, struct selector_key *key);
 
 // Accept a new TCP connection on a server socket
 int acceptTCPConnection(int servSock);

@@ -1,5 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g -Isrc/utils -D_GNU_SOURCE
+SAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer
 BIN = server
 TEST_BIN = test_program
 SRC_DIR = src
@@ -60,7 +61,7 @@ dirs:
 
 # Main server target
 $(BIN_DIR)/$(BIN): $(SERVER_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl
+	$(CC) $(CFLAGS) $(SAN_FLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl $(SAN_FLAGS)
 
 # Test target
 $(BIN_DIR)/$(TEST_BIN): $(TEST_OBJS)
