@@ -476,7 +476,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
         }
         if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
-            close(remoteSocket);
+            close(remoteSocket); //todo should be unregistered from selector, bear in mind edge case that next is null, double unregister will happen
             remoteSocket = -1; // Reset to indicate failure
             data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
             continue;
