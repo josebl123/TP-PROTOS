@@ -326,16 +326,44 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
     clientConfigData *data = key->data;
     int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
 
-    if (available < 6) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte), 3 bytes relleno
+    ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE;
+        } else {
+            log(ERROR, "recv() failed on client socket %d", fd);
+            return ERROR_CONFIG_CLIENT
+        }
+    }
 
-    uint8_t version = ptr[0];
-    uint8_t rsv = ptr[1];
-    uint8_t code = ptr[2];
-    data->admin_cmd = code;
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    buffer_read_adv(data->clientBuffer, 6); // avanzar 6 bytes (version, rsv, code, 3 relleno)
+    if (numBytesRcvd < 6) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte), 3 bytes relleno
+
+    uint8_t version = buffer_read(data->clientBuffer);
+    if (version != CONFIG_VERSION) {
+        log(ERROR, "Unsupported MAEP version: %u", version);
+        return CONFIG_DONE;
+    }
+    uint8_t rsv = buffer_read(data->clientBuffer);
+    if (rsv != 0x00) {
+        log(ERROR, "Invalid reserved byte in admin config request: %u", rsv);
+        return CONFIG_DONE;
+    }
+    uint8_t code = buffer_read(data->clientBuffer);
+    if (code < 0x00 || code > 0x05) {
+        log(ERROR, "Invalid admin config command code: %u", code);
+        return CONFIG_DONE;
+    }
+    data->admin_cmd = buffer_read(data->clientBuffer);
+    if (data->admin_cmd < 0x00 || data->admin_cmd > 0x01) {
+        log(ERROR, "Invalid admin command: %u", data->admin_cmd);
+        return CONFIG_DONE;
+    }
+
 
     switch (code) {
         case 0x00: // change buffer size
