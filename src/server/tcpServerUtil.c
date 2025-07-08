@@ -231,6 +231,7 @@ int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct ad
     rData->client = data; // Set the client data
     rData->buffer = remoteBuffer; // Set the buffer for the remote socket
     rData->stm = createRemoteStateMachine(); // Create the state machine for the remote socket
+    rData->connectionReady = 0; // Initialize the connection ready flag to false
     data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
     data->remoteSocket = remoteSocket; // Store the remote socket in client data
 
