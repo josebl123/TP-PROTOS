@@ -29,6 +29,7 @@ unsigned handleConfigRead(struct selector_key *key){
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
@@ -60,6 +61,7 @@ unsigned handleConfigWrite(struct selector_key *key){
     const int clntSocket = key->fd; // Socket del cliente
     struct clientData *data = key->data; // Datos del cliente
     char * response = NULL; // Respuesta a enviar al cliente
+    log(INFO, "Writing configuration to client socket %d", clntSocket);
 
     switch (data->args->type) {
        case BUFFER_SIZE:
@@ -124,6 +126,7 @@ unsigned handleConfigWrite(struct selector_key *key){
 
     free(response);
     selector_set_interest_key(key, OP_READ); // Desregistrar el socket del selector
+    log(INFO, "Sent configuration response to client socket %d", clntSocket);
     return CONFIG_READ; // Cambia
 
  }

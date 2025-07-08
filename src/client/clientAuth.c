@@ -59,6 +59,7 @@ unsigned handleAuthRead(struct selector_key *key){
     }
     if (role == 0x01) {
         log(INFO, "Authenticated as ADMIN");
+        buffer_reset(data->clientBuffer); // Limpiar el buffer del cliente
         selector_set_interest_key(key, OP_WRITE);
         return REQUEST_WRITE;
     }
