@@ -422,7 +422,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
     clientData *data = key->data; // Get the client data from the key
 
     if (data->addressResolved) {
-        log(INFO, "Address already resolved for client socket %d", key->fd);
+        log(INFO, "Address already resolved for client socket %d with status %d", key->fd, data->responseStatus);
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
             data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
