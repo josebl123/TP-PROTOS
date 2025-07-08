@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <arpa/inet.h>
+#include <errno.h>
 #include <unistd.h>
 #include "rbt.h"
 #include "../metrics/metrics.h"
@@ -104,13 +105,13 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
     int clntSocket = key->fd;
     clientConfigData *data = key->data;
 
-    uint8_t response[3] = { CONFIG_VERSION, STATUS_FAIL, ROLE_USER };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, STATUS_FAIL, ROLE_USER };
     if (data->role == ROLE_ADMIN) {
-        response[1] = STATUS_OK;
-        response[2] = ROLE_ADMIN;
+        response[2] = STATUS_OK;
+        response[3] = ROLE_ADMIN;
     } else if (data->role == ROLE_USER) {
-        response[1] = STATUS_OK;
-        response[2] = ROLE_USER;
+        response[2] = STATUS_OK;
+        response[3] = ROLE_USER;
     }
 
     const ssize_t sent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
@@ -127,8 +128,12 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
     log(INFO, "Authenticated client %s as %s", data->authInfo.username,
         data->role == ROLE_ADMIN ? "ADMIN" : "USER");
 
-    selector_set_interest_key(key, OP_WRITE);
-    return (data->role == ROLE_ADMIN) ? ADMIN_INITIAL_REQUEST_READ : USER_METRICS;
+    if (data->role != ROLE_ADMIN) {
+        selector_set_interest_key(key, OP_WRITE);
+        return USER_METRICS;
+    }
+    selector_set_interest_key(key, OP_READ);
+    return ADMIN_INITIAL_REQUEST_READ;
 }
 
 unsigned handleUserMetricsWrite(struct selector_key *key) {
@@ -281,23 +286,41 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
 
 unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     clientConfigData *data = key->data;
-    int fd = key->fd;
+    const int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+        } else {
+            log(ERROR, "recv() failed on client socket %d: %s", fd, strerror(errno));
+        }
+        return CONFIG_DONE;
+    }
+    log(INFO, "Handling admin initial request read on fd %d", fd);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    if (numBytesRcvd < 4) return CONFIG_DONE;
 
-    if (available < 4) return ADMIN_INITIAL_REQUEST_READ;
+    const uint8_t version = buffer_read(data->clientBuffer);
+    const uint8_t rsv = buffer_read(data->clientBuffer);
+    const uint8_t cmd = buffer_read(data->clientBuffer); // 0=stats, 1=config
+    uint8_t ulen = buffer_read(data->clientBuffer);
 
-    uint8_t version = ptr[0];
-    uint8_t rsv = ptr[1];
-    uint8_t cmd = ptr[2]; // 0=stats, 1=config
-    uint8_t ulen = ptr[3];
+    if (version != CONFIG_VERSION) {
+        log(ERROR, "Unsupported MAEP version: %u", version);
+        return CONFIG_DONE;
+    }
+    if (rsv != 0x00) {
+        log(ERROR, "Invalid reserved byte in admin request: %u", rsv);
+        return CONFIG_DONE;
+    }
+    log(INFO, "Admin command: %u, username length: %u", cmd, ulen);
 
-    if (available < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
+    if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
 
     char username[MAX_USERNAME_LEN + 1] = {0};
     if (ulen > 0) memcpy(username, ptr + 4, ulen);
-
-    buffer_read_adv(data->clientBuffer, 4 + ulen);
 
     // Save info in clientData
     data->admin_cmd = cmd;
@@ -312,6 +335,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
         return ADMIN_METRICS_SEND;
     }
     if (cmd == 1) {
+        log(INFO, "Admin %s requested config", username);
         response[2] = 0x01; // config success
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_READ);

@@ -29,6 +29,7 @@ unsigned handleRequestRead(struct selector_key *key) {
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
@@ -48,7 +49,8 @@ unsigned handleRequestRead(struct selector_key *key) {
         return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
     }
     uint8_t option = buffer_read(data->clientBuffer); // Leer la longitud del username
-    if(option == 0x01) { // Solo soportamos un username
+    if(option == 0x01) {
+        log(INFO, "User login, reading username");
         selector_set_interest_key(key, OP_WRITE); // Cambiamos a escritura
         return CONFIG_WRITE; // Abortamos si la longitud del username no es correcta
     }
@@ -69,6 +71,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
     int totalLength = 1 + 1 + 1 + usernameLength + 1; // Version + RSV + Option + Username + Null terminator
 
+    log(INFO, "Writing request to client socket %d with username length %d", clntSocket, usernameLength);
     char *response = malloc(totalLength);
     if (response == NULL) {
         log(ERROR, "Memory allocation failed for response buffer");
@@ -76,7 +79,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
     }
     response[0] = VERSION; // Version
     response[1] = RSV; // Reserved byte
-    response[2] = 0x00; // Option: No authentication required
+    response[2] = false && data->args->stats ? 0x00 : 0x01; // Option: 0x00 for stats, 0x01 for username
     response[3] = usernameLength; // Length of username
     if (usernameLength > 0) {
         memcpy(response + 4, data->args->target_user, usernameLength); // Copiamos el username

@@ -7,6 +7,7 @@
 #include "args.h"
 #include "stm.h"
 #include "buffer.h"
+
 #define VERSION 0x01 // Version for authentication subnegotiation
 #define RSV 0x00 // Reserved byte for authentication subnegotiation
 
