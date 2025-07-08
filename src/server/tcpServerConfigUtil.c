@@ -510,8 +510,8 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             log(INFO, "handling remove user");
             return ADMIN_REMOVE_USER_READ;
         case 0x05: // make-admin
-            selector_set_interest_key(key, OP_WRITE);
-            return ADMIN_COMMAND_READ;
+            selector_set_interest_key(key, OP_READ);
+            return ADMIN_MAKE_ADMIN_READ;
 
         default:
             log(ERROR, "Unknown admin config command code: %u", code);
@@ -572,6 +572,11 @@ unsigned addUser( char * username, const uint8_t ulen,  char *password, const ui
     }
 
     for (size_t i = 0; i < MAX_USERS; i++) {
+        if ( socksArgs->users[i].name != NULL &&
+            strncmp(socksArgs->users[i].name, username, ulen) == 0) {
+            log(ERROR, "User %s already exists", username);
+            return false; // User already exists
+        }
         if (socksArgs->users[i].name == NULL) {
             // Found an empty slot
             socksArgs->users[i].name = malloc(ulen + 1);
@@ -770,7 +775,7 @@ unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
-int makeAdmin(char *username) {
+int makeAdmin(char *username, uint8_t ulen) {
     if (socksArgs == NULL || socksArgs->users == NULL) {
         log(ERROR, "socksArgs o users array es NULL");
         return false;
@@ -778,7 +783,7 @@ int makeAdmin(char *username) {
 
     for (size_t i = 0; i < MAX_USERS; i++) {
         if (socksArgs->users[i].name != NULL &&
-            strncmp(socksArgs->users[i].name, username, MAX_USERNAME_LEN) == 0) {
+            strncmp(socksArgs->users[i].name, username, ulen) == 0) {
             if (socksArgs->users[i].is_admin) {
                 log(ERROR, "El usuario %s ya es admin", username);
                 return false;
@@ -791,32 +796,65 @@ int makeAdmin(char *username) {
     log(ERROR, "Usuario %s no encontrado", username);
     return false;
 }
+
+unsigned handleAdminMakeAdminRead(struct selector_key * key) {
+    clientConfigData *data = key->data;
+    const int fd = key->fd;
+    size_t available;
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE;
+        }
+        log(ERROR, "recv() failed on client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
+    }
+
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+
+    if (numBytesRcvd < 2) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
+
+    const uint8_t ulen = buffer_read(data->clientBuffer);
+    if (ulen > MAX_USERNAME_LEN) {
+        log(ERROR, "Username length exceeds maximum: %u", ulen);
+        return CONFIG_DONE;
+    }
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    if (ulen > 0) memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
+
+    buffer_read_adv(data->clientBuffer, ulen);
+
+    int flag = 1;
+
+    log(INFO, "received username: %s", username);
+    if (!makeAdmin(username, ulen)) {
+        flag = 0;
+    }
+
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, flag);
+    selector_set_interest_key(key, OP_WRITE);
+    return ADMIN_MAKE_ADMIN;
+}
+
 unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     int fd = key->fd;
+    int flag = buffer_read(data->clientBuffer);
 
-    size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
-    if (available < 3) return ADMIN_MAKE_ADMIN;
-
-    uint8_t ulen = ptr[2];
-    if (available < 3 + ulen) return ADMIN_MAKE_ADMIN;
-
-    char username[MAX_USERNAME_LEN + 1] = {0};
-    memcpy(username, ptr + 3, ulen);
-    buffer_read_adv(data->clientBuffer, 3 + ulen);
-
-    if (makeAdmin(username)) {
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x05, 0x00 };
+    if (flag) {
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x05, 0x00 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
-        log(ERROR, "Failed to promote user %s to admin", username);
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x01, 0x01 };
+        log(ERROR, "Failed to make admin user");
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x05, 0x01 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
-
-    return CONFIG_DONE;
+    return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
 unsigned handleAdminMenuRead(struct selector_key *key) {
@@ -955,6 +993,9 @@ static const struct state_definition states_config[] = {
     [ADMIN_MAKE_ADMIN] = {
         .state = ADMIN_MAKE_ADMIN,
         .on_write_ready = handleAdminMakeAdminWrite,
+    },    [ADMIN_MAKE_ADMIN_READ] = {
+        .state = ADMIN_MAKE_ADMIN_READ,
+        .on_read_ready = handleAdminMakeAdminRead,
     },
     [ADMIN_MENU_READ] = {
         .state = ADMIN_MENU_READ,

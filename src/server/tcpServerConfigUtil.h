@@ -41,6 +41,7 @@ typedef enum {
     ADMIN_REMOVE_USER,           // Quitar usuario
     ADMIN_REMOVE_USER_READ,
     ADMIN_MAKE_ADMIN,            // Convertir usuario en admin
+    ADMIN_MAKE_ADMIN_READ,
 
     CONFIG_DONE,                 // Finaliza sesión/config
     ERROR_CONFIG_CLIENT          // Error fatal
