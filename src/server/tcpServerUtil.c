@@ -44,8 +44,8 @@ void handleTcpClose(  struct selector_key *key) {
         free(data->remoteBuffer->data);
         free(data->remoteBuffer);
     }
-    if (data->remoteAddrInfo) {
-        freeaddrinfo(data->remoteAddrInfo); // Liberar la estructura de direcciones remotas
+    if (data->pointerToFree) {
+        freeaddrinfo(data->pointerToFree); // Liberar la estructura de direcciones remotas
     }
     free(data->dnsRequest);
     free(data->stm);
@@ -307,6 +307,7 @@ void getAddrInfoCallBack(union sigval sigval) {
 
     data->addressResolved = 0; // Mark the address as not resolved (success)
     data->remoteAddrInfo = req->request.ar_result; // Store the result in client data
+    data->pointerToFree = req->request.ar_result; // Store the pointer to free later
     log(INFO, "getaddrinfo() succeeded for domain %s", req->request.ar_name);
 
     if (selector_notify_block(req->fdSelector, req->fd) != SELECTOR_SUCCESS) {
@@ -515,7 +516,7 @@ int initializeClientData(clientData *data) {
         return -1;
     }
     data->dnsRequest = dnsRequest; // Initialize the DNS request structure
-    data->remoteAddrInfo = NULL; // Initialize remote address info to NULL
+    data->pointerToFree = NULL; // Initialize remote address info to NULL
 
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data

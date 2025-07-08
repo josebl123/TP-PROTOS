@@ -118,6 +118,8 @@ struct dnsReq{
   int addressResolved; // Flag to indicate if the callback is ready
   struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
 
+  struct addrinfo *pointerToFree; // Pointer to the address info to free later
+
 };
 
 typedef struct {
