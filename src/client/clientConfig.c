@@ -48,6 +48,7 @@ unsigned handleConfigRead(struct selector_key *key){
         log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
         return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
     }
+    buffer_read_adv(data->clientBuffer, 1); // Leer los dos primeros bytes (versión y reservado)
     if( buffer_read(data->clientBuffer) == 0x00) {
         log(INFO, "SUCCESS");
         return DONE; // Abortamos si la opción no es válida
@@ -61,6 +62,7 @@ unsigned handleConfigWrite(struct selector_key *key){
     const int clntSocket = key->fd; // Socket del cliente
     struct clientData *data = key->data; // Datos del cliente
     char * response = NULL; // Respuesta a enviar al cliente
+    int responseSize = 0; // Tamaño de la respuesta
     log(INFO, "Writing configuration to client socket %d", clntSocket);
 
     switch (data->args->type) {
@@ -73,6 +75,7 @@ unsigned handleConfigWrite(struct selector_key *key){
            response[8] = data->args->buffer_size >> 16; // Middle high byte
            response[9] = data->args->buffer_size >> 8; // Middle low byte
            response[10] = data->args->buffer_size & 0xFF; // Low byte
+           responseSize = 11; // Total size of the response
 
          break;
        case ACCEPTS_NO_AUTH: // If the client accepts no authentication
@@ -80,6 +83,7 @@ unsigned handleConfigWrite(struct selector_key *key){
             response[0] = VERSION; // Version for configuration
             response[1] = RSV; // Reserved byte for configuration
             response[2] = data->args->accepts_no_auth ? OPTION_ACCEPTS_NO_AUTH : OPTION_NOT_ACCEPTS_NO_AUTH; // Option for accepts no auth
+            responseSize = 8; // Total size of the response
             break;
 
   case ADD_USER:
@@ -91,6 +95,7 @@ unsigned handleConfigWrite(struct selector_key *key){
             memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
             response[4 + strlen(data->args->user.name) ] = strlen(data->args->user.pass); // Length of password
             memcpy(response + 5 + strlen(data->args->user.name), data->args->user.pass, strlen(data->args->user.pass)); // Copy password
+            responseSize = 5 + strlen(data->args->user.name) + strlen(data->args->user.pass); // Total size of the response
          break;
    case REMOVE_USER: // If the client removes a user
             response = calloc(5 + strlen(data->args->user.name), 1);
@@ -99,6 +104,7 @@ unsigned handleConfigWrite(struct selector_key *key){
                 response[2] = OPTION_REMOVE_USER; // Option for removing user
                 response[3] = strlen(data->args->user.name); // Length of username
                 memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
+                responseSize = 5 + strlen(data->args->user.name); // Total size of the response
             break;
   case MAKE_ADMIN: // If the client adds an admin
             response = calloc(5 + strlen(data->args->user.name), 1);
@@ -107,12 +113,13 @@ unsigned handleConfigWrite(struct selector_key *key){
             response[2] = OPTION_MAKE_ADMIN; // Option for making user admin
             response[3] = strlen(data->args->user.name); // Length of username
             memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
+            responseSize = 5 + strlen(data->args->user.name); // Total size of the response
             break;
   default:
             log(ERROR, "Unknown configuration option: %d", data->args->type);
             return ERROR_CLIENT; // Abortamos si la opción no es válida
      }
-    ssize_t sent = send(clntSocket, response, strlen(response), 0);
+    ssize_t sent = send(clntSocket, response,responseSize, 0);
     if( sent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         free(response);
@@ -123,7 +130,7 @@ unsigned handleConfigWrite(struct selector_key *key){
         free(response);
         return DONE;
     }
-
+    log(INFO, "Sent %zd bytes to client socket %d", sent, clntSocket);
     free(response);
     selector_set_interest_key(key, OP_READ); // Desregistrar el socket del selector
     log(INFO, "Sent configuration response to client socket %d", clntSocket);

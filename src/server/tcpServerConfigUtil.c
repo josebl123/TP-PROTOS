@@ -464,60 +464,63 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
 
 unsigned handleAdminConfigRead(struct selector_key *key) {
     clientConfigData *data = key->data;
-    int fd = key->fd;
+    const int fd = key->fd;
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
 
-    ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
-        } else {
-            log(ERROR, "recv() failed on client socket %d", fd);
-            return ERROR_CONFIG_CLIENT;
         }
+        log(ERROR, "recv() failed on client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
     }
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     if (numBytesRcvd < 6) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte), 3 bytes relleno
 
-    uint8_t version = buffer_read(data->clientBuffer);
+    const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
     }
-    uint8_t rsv = buffer_read(data->clientBuffer);
+    const uint8_t rsv = buffer_read(data->clientBuffer);
     if (rsv != 0x00) {
         log(ERROR, "Invalid reserved byte in admin config request: %u", rsv);
         return CONFIG_DONE;
     }
-    uint8_t code = buffer_read(data->clientBuffer);
+    const uint8_t code = buffer_read(data->clientBuffer);
     if (code < 0x00 || code > 0x05) {
         log(ERROR, "Invalid admin config command code: %u", code);
         return CONFIG_DONE;
     }
-    data->admin_cmd = buffer_read(data->clientBuffer);
-    if (data->admin_cmd < 0x00 || data->admin_cmd > 0x01) {
-        log(ERROR, "Invalid admin command: %u", data->admin_cmd);
-        return CONFIG_DONE;
-    }
+    // data->admin_cmd =code;
+    // if (data->admin_cmd < 0x00 || data->admin_cmd > 0x01) {
+    //     log(ERROR, "Invalid admin command: %u", data->admin_cmd);
+    //     return CONFIG_DONE;
+    // }
 
 
     switch (code) {
         case 0x00: // change buffer size
+            selector_set_interest_key(key, OP_WRITE);
             return ADMIN_BUFFER_SIZE_CHANGE;
 
         case 0x01: // accepts-no-auth
+            selector_set_interest_key(key, OP_WRITE);
             return ADMIN_ACCEPTS_NO_AUTH;
 
         case 0x02: // not-accepts-no-auth
+            selector_set_interest_key(key, OP_WRITE);
             return ADMIN_REJECTS_NO_AUTH;
 
         case 0x03: // add-user
         case 0x04: // remove-user
         case 0x05: // make-admin
+            selector_set_interest_key(key, OP_WRITE);
             return ADMIN_COMMAND_READ;
 
         default:
@@ -528,7 +531,7 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
 unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
-    int fd = key->fd;
+    const int fd = key->fd;
 
     size_t available;
     uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
@@ -557,7 +560,7 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
 unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
     serverAcceptsNoAuth = true;
 
-    uint8_t response[6] = { CONFIG_VERSION, 0x01, 0x00, 0x00, 0x00, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x01, 0x00 };
     send(key->fd, response, sizeof(response), MSG_DONTWAIT);
 
     return CONFIG_DONE;
@@ -566,7 +569,7 @@ unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
 unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
     serverAcceptsNoAuth = false;
 
-    uint8_t response[6] = { CONFIG_VERSION, 0x02, 0x00, 0x00, 0x00, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x02, 0x00 };
     send(key->fd, response, sizeof(response), MSG_DONTWAIT);
 
     return CONFIG_DONE;
@@ -612,11 +615,11 @@ unsigned handleAdminAddUserWrite(struct selector_key *key) {
     buffer_read_adv(data->clientBuffer, 4 + ulen + plen);
 
     if (addUser(username, password, false)) {
-        uint8_t response[6] = { CONFIG_VERSION, 0x03, 0x00, 0x00, 0x00, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x00 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to add user %s", username);
-        uint8_t response[6] = { CONFIG_VERSION, 0x03, 0x01, 0x00, 0x00, 0x00 };  // STATUS = 0x01 (fail)
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x01 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -662,11 +665,11 @@ unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
     buffer_read_adv(data->clientBuffer, 3 + ulen);
 
     if (removeUser(username)) {
-        uint8_t response[6] = { CONFIG_VERSION, 0x04, 0x00, 0x00, 0x00, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x00 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to remove user %s", username);
-        uint8_t response[6] = { CONFIG_VERSION, 0x04, 0x01, 0x00, 0x00, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x01 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -714,11 +717,11 @@ unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
     buffer_read_adv(data->clientBuffer, 3 + ulen);
 
     if (makeAdmin(username)) {
-        uint8_t response[6] = { CONFIG_VERSION, 0x05, 0x00, 0x00, 0x00, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x05, 0x00 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to promote user %s to admin", username);
-        uint8_t response[6] = { CONFIG_VERSION, 0x05, 0x01, 0x00, 0x00, 0x00 };
+    const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x01, 0x01 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -737,17 +740,16 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
         if (numBytesRcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
-        } else {
-            log(ERROR, "recv() failed on client socket %d", fd);
-            return ERROR_CONFIG_CLIENT;
         }
+        log(ERROR, "recv() failed on client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
     }
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     if (numBytesRcvd < 4) return ADMIN_MENU_READ;
 
-    uint8_t version = buffer_read(data->clientBuffer);
+    const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
