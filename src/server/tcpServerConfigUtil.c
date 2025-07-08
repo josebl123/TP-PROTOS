@@ -488,6 +488,9 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             selector_set_interest_key(key, OP_READ);
             return ADMIN_ADD_USER_READ;
         case 0x04: // remove-user
+            selector_set_interest_key(key, OP_READ);
+            log(INFO, "handling remove user");
+            return ADMIN_REMOVE_USER_READ;
         case 0x05: // make-admin
             selector_set_interest_key(key, OP_WRITE);
             return ADMIN_COMMAND_READ;
@@ -553,8 +556,8 @@ unsigned addUser( char * username, const uint8_t ulen,  char *password, const ui
     for (size_t i = 0; i < MAX_USERS; i++) {
         if (socksArgs->users[i].name == NULL) {
             // Found an empty slot
-            socksArgs->users[i].name = username;
-            socksArgs->users[i].pass = password;
+            socksArgs->users[i].name = malloc(ulen + 1);
+            socksArgs->users[i].pass = malloc(passlen + 1);
             if (socksArgs->users[i].name == NULL || socksArgs->users[i].pass == NULL) {
                 log(ERROR, "Memory allocation failed for new user");
                 return false;
@@ -644,18 +647,43 @@ unsigned handleAdminAddUserWrite(struct selector_key *key) {
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
-int removeUser(char * username) {
+int removeUser(char * username, uint8_t ulen) {
         if (socksArgs == NULL || socksArgs->users == NULL) {
         log(ERROR, "socksArgs or users array is NULL");
         return false;
     }
 
+    // Busca el usuario a borrar
     for (size_t i = 0; i < MAX_USERS; i++) {
-        if (socksArgs->users[i].name != NULL && strncmp(socksArgs->users[i].name, username, MAX_USERNAME_LEN) == 0) {
-            // Found the user to remove
-            socksArgs->users[i].name[0] = '\0'; // Clear the username
-            socksArgs->users[i].pass[0] = '\0'; // Clear the password
-            socksArgs->users[i].is_admin = false; // Clear admin status
+        if (socksArgs->users[i].name != NULL && strncmp(socksArgs->users[i].name, username, ulen) == 0) {
+            // Busca el último usuario válido
+            size_t last = MAX_USERS;
+            for (size_t j = 0; j < MAX_USERS; j++) {
+                if (socksArgs->users[j].name == NULL) {
+                    last = j;
+                    break;
+                }
+            }
+            if (last == 0) return false; // No hay usuarios
+
+            size_t last_idx = last - 1;
+            if (i != last_idx) {
+                // Libera el usuario a borrar
+                free(socksArgs->users[i].name);
+                free(socksArgs->users[i].pass);
+                // Copia el último usuario en la posición borrada
+                socksArgs->users[i].name = socksArgs->users[last_idx].name;
+                socksArgs->users[i].pass = socksArgs->users[last_idx].pass;
+                socksArgs->users[i].is_admin = socksArgs->users[last_idx].is_admin;
+            } else {
+                // Si es el último, solo libera
+                free(socksArgs->users[i].name);
+                free(socksArgs->users[i].pass);
+            }
+            // Marca el último como vacío
+            socksArgs->users[last_idx].name = NULL;
+            socksArgs->users[last_idx].pass = NULL;
+            socksArgs->users[last_idx].is_admin = false;
             return true;
         }
     }
@@ -664,34 +692,63 @@ int removeUser(char * username) {
 
 }
 
+unsigned handleAdminRemoveUserRead(struct selector_key * key) {
+    clientConfigData *data = key->data;
+    const int fd = key->fd;
+    size_t available;
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE;
+        }
+        log(ERROR, "recv() failed on client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
+    }
+
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+
+    if (numBytesRcvd < 2) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
+
+    const uint8_t ulen = buffer_read(data->clientBuffer);
+    if (ulen > MAX_USERNAME_LEN) {
+        log(ERROR, "Username length exceeds maximum: %u", ulen);
+        return CONFIG_DONE;
+    }
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    if (ulen > 0) memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
+
+    buffer_read_adv(data->clientBuffer, ulen);
+
+    int flag = 1;
+
+    log(INFO, "received username: %s", username);
+    if (!removeUser(username, ulen)) {
+        flag = 0;
+    }
+
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, flag);
+    selector_set_interest_key(key, OP_WRITE);
+    return ADMIN_REMOVE_USER;
+}
+
 unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     int fd = key->fd;
+    int flag = buffer_read(data->clientBuffer);
 
-    size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
-    if (available < 3) return ADMIN_REMOVE_USER;
-
-    uint8_t ulen = ptr[2];
-    if (available < 3 + ulen) return ADMIN_REMOVE_USER;
-
-    char username[MAX_USERNAME_LEN + 1] = {0};
-    memcpy(username, ptr + 3, ulen);
-    buffer_read_adv(data->clientBuffer, 3 + ulen);
-
-    if (removeUser(username)) {
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x00 };
+    if (flag) {
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x00 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
-        log(ERROR, "Failed to remove user %s", username);
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x01 };
+        log(ERROR, "Failed to remove user");
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x01 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
-
-    // buffer_reset(data->clientBuffer);
-    // selector_set_interest_key(key, OP_READ);
-    // return ADMIN_MENU_READ;
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
@@ -872,6 +929,10 @@ static const struct state_definition states_config[] = {
     [ADMIN_REMOVE_USER] = {
         .state = ADMIN_REMOVE_USER,
         .on_write_ready = handleAdminRemoveUserWrite,
+    },
+    [ADMIN_REMOVE_USER_READ] = {
+        .state = ADMIN_REMOVE_USER_READ,
+        .on_read_ready = handleAdminRemoveUserRead,
     },
     [ADMIN_MAKE_ADMIN] = {
         .state = ADMIN_MAKE_ADMIN,

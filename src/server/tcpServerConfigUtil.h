@@ -39,6 +39,7 @@ typedef enum {
     ADMIN_ADD_USER,              // Agregar usuario
     ADMIN_ADD_USER_READ,
     ADMIN_REMOVE_USER,           // Quitar usuario
+    ADMIN_REMOVE_USER_READ,
     ADMIN_MAKE_ADMIN,            // Convertir usuario en admin
 
     CONFIG_DONE,                 // Finaliza sesión/config
