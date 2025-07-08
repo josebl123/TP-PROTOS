@@ -590,21 +590,48 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
     clientConfigData *data = key->data;
     int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
 
-    if (available < 4) return ADMIN_MENU_READ;
+    ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE;
+        } else {
+            log(ERROR, "recv() failed on client socket %d", fd);
+            return ERROR_CONFIG_CLIENT;
+        }
+    }
 
-    uint8_t version = ptr[0];
-    uint8_t rsv = ptr[1];
-    uint8_t cmd = ptr[2]; // 0=stats, 1=config
-    uint8_t ulen = ptr[3];
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (available < 4 + ulen) return ADMIN_MENU_READ;
+    if (numBytesRcvd < 4) return ADMIN_MENU_READ;
+
+    uint8_t version = buffer_read(data->clientBuffer);
+    if (version != CONFIG_VERSION) {
+        log(ERROR, "Unsupported MAEP version: %u", version);
+        return CONFIG_DONE;
+    }
+    uint8_t rsv = buffer_read(data->clientBuffer);
+    if (rsv != 0x00) {
+        log(ERROR, "Invalid reserved byte in admin menu request: %u", rsv);
+        return CONFIG_DONE;
+    }
+    uint8_t cmd = buffer_read(data->clientBuffer);
+    if (cmd < 0x00 || cmd > 0x01) {
+        log(ERROR, "Invalid admin menu command code: %u", cmd);
+        return CONFIG_DONE;
+    }
+    uint8_t ulen = buffer_read(data->clientBuffer);
+    if (ulen > MAX_USERNAME_LEN) {
+        log(ERROR, "Username length exceeds maximum: %u", ulen);
+        return CONFIG_DONE;
+    }
+
+    if (numBytesRcvd < 4 + ulen) return ADMIN_MENU_READ;
 
     char username[MAX_USERNAME_LEN + 1] = {0};
     if (ulen > 0) memcpy(username, ptr + 4, ulen);
-
-    buffer_read_adv(data->clientBuffer, 4 + ulen);
 
     // Guardar datos en estructura
     data->admin_cmd = cmd;
