@@ -437,6 +437,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
 
     for (struct addrinfo *addr = data->remoteAddrInfo; addr != NULL; addr = addr->ai_next) { //TODO this for loop could use modularization, repeated code in setupRemoteTCPSocket
         log(INFO, "Trying next address: %s", printAddressPort(addr, addrBuffer));
+        data->remoteAddrInfo = data->remoteAddrInfo->ai_next; // Update the remote address info in client data
         remoteSocket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
         if (remoteSocket < 0) {
             log(ERROR, "Failed to create socket for address %s: %s", addrBuffer, strerror(errno));
