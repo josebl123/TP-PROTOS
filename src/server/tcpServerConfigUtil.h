@@ -26,6 +26,7 @@ typedef enum {
 
     // ADMIN
     ADMIN_INITIAL_REQUEST_READ,  // VERSION RSV CMD ULEN USERNAME (CMD = 0 stats, 1 config)
+    ADMIN_INITIAL_REQUEST_WRITE,
     ADMIN_METRICS_SEND,          // Enviar métricas globales o de usuario
 
     ADMIN_COMMAND_READ,          // Esperar comandos de configuración
@@ -62,6 +63,7 @@ typedef struct {
     size_t metrics_buf_offset;
     uint8_t admin_cmd; // 0 = stats, 1 = config
     char target_username[MAX_USERNAME_LEN];
+    uint8_t target_ulen;
 } clientConfigData;
 
 #endif

@@ -235,11 +235,105 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
     close(key->fd);
 }
 
+unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+
+    uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
+
+    if (data->admin_cmd == 0) { // STATS
+        response[2] = 0x00;
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        selector_set_interest_key(key, OP_WRITE);
+        return ADMIN_METRICS_SEND;
+    }
+    if (data->admin_cmd == 1) { // CONFIG
+        response[2] = 0x01;
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        selector_set_interest_key(key, OP_READ);
+        return ADMIN_COMMAND_READ;
+    }
+    response[2] = 0xFF;
+    send(fd, response, sizeof(response), MSG_DONTWAIT);
+    return CONFIG_DONE;
+}
+
 
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     int clntSocket = key->fd;
 
+    if (data->target_ulen == 0) {
+        if (data->metrics_buf == NULL) {
+            size_t bufsize = METRICS_BUF_CHUNK;
+            char *buffer = malloc(bufsize);
+            if (!buffer) return CONFIG_DONE;
+
+            FILE *memfile = fmemopen(buffer, bufsize, "w");
+            if (!memfile) {
+                free(buffer);
+                return CONFIG_DONE;
+            }
+
+            print_global_metrics(memfile);
+            fflush(memfile);
+
+            size_t written = ftell(memfile);
+            fclose(memfile);
+
+            // Header (3) + longitud (4) + cuerpo
+            size_t total_len = 3 + 4 + written;
+            char *full_buf = malloc(total_len);
+            if (!full_buf) {
+                free(buffer);
+                return CONFIG_DONE;
+            }
+
+            full_buf[0] = CONFIG_VERSION;
+            full_buf[1] = 0x00;
+            full_buf[2] = 0x00;
+            uint32_t body_len = htonl(written);
+            memcpy(full_buf + 3, &body_len, 4);
+            memcpy(full_buf + 7, buffer, written);
+
+            free(buffer);
+
+            data->metrics_buf = full_buf;
+            data->metrics_buf_len = total_len;
+            data->metrics_buf_offset = 0;
+        }
+
+        const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+        const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+        if (sent < 0) {
+            free(data->metrics_buf);
+            data->metrics_buf = NULL;
+            data->metrics_buf_len = 0;
+            data->metrics_buf_offset = 0;
+            return CONFIG_DONE;
+        }
+
+        data->metrics_buf_offset += sent;
+
+        if (data->metrics_buf_offset >= data->metrics_buf_len) {
+            free(data->metrics_buf);
+            data->metrics_buf = NULL;
+            data->metrics_buf_len = 0;
+            data->metrics_buf_offset = 0;
+
+            buffer_reset(data->clientBuffer);
+            return ADMIN_MENU_READ;
+        }
+
+        return ADMIN_METRICS_SEND;
+    }
+
+    // Si hay un usuario específico, obtenemos sus métricas
+    user_metrics *um = get_or_create_user_metrics(data->target_username);
+    if (!um) {
+        log(ERROR, "User metrics not found for %s", data->target_username);
+        return CONFIG_DONE;
+    }
     if (data->metrics_buf == NULL) {
         size_t bufsize = METRICS_BUF_CHUNK;
         char *buffer = malloc(bufsize);
@@ -251,26 +345,48 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             return CONFIG_DONE;
         }
 
-        // Imprimir las métricas globales en el buffer
-        print_global_metrics(memfile);
+        print_user_metrics_tabbed(um, data->target_username, memfile);
         fflush(memfile);
 
         size_t written = ftell(memfile);
         fclose(memfile);
 
-        data->metrics_buf = buffer;
-        data->metrics_buf_len = written;
+        // Header (3) + longitud (4) + cuerpo
+        size_t total_len = 3 + 4 + written;
+        char *full_buf = malloc(total_len);
+        if (!full_buf) {
+            free(buffer);
+            return CONFIG_DONE;
+        }
+
+        // Header
+        full_buf[0] = CONFIG_VERSION;
+        full_buf[1] = 0x00; // RSV
+        full_buf[2] = 0x00; // STATUS_OK
+
+        // Longitud en network byte order
+        uint32_t body_len = htonl(written);
+        memcpy(full_buf + 3, &body_len, 4);
+
+        // Cuerpo
+        memcpy(full_buf + 7, buffer, written);
+
+        free(buffer);
+
+        data->metrics_buf = full_buf;
+        data->metrics_buf_len = total_len;
         data->metrics_buf_offset = 0;
     }
-
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
     const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
     if (sent < 0) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
         return CONFIG_DONE;
     }
-
     data->metrics_buf_offset += sent;
-
     if (data->metrics_buf_offset >= data->metrics_buf_len) {
         free(data->metrics_buf);
         data->metrics_buf = NULL;
@@ -280,8 +396,8 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         buffer_reset(data->clientBuffer); // limpiar buffer para próxima lectura
         return ADMIN_MENU_READ;           // ← volvemos al menú
     }
+    return ADMIN_METRICS_SEND; // Continuar enviando métricas
 
-    return ADMIN_METRICS_SEND;
 }
 
 unsigned handleAdminInitialRequestRead(struct selector_key *key) {
@@ -359,7 +475,7 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             return CONFIG_DONE;
         } else {
             log(ERROR, "recv() failed on client socket %d", fd);
-            return ERROR_CONFIG_CLIENT
+            return ERROR_CONFIG_CLIENT;
         }
     }
 
@@ -652,10 +768,12 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
         return CONFIG_DONE;
     }
 
+
     if (numBytesRcvd < 4 + ulen) return ADMIN_MENU_READ;
 
     char username[MAX_USERNAME_LEN + 1] = {0};
     if (ulen > 0) memcpy(username, ptr + 4, ulen);
+    data->target_ulen = ulen;
 
     // Guardar datos en estructura
     data->admin_cmd = cmd;
@@ -701,6 +819,11 @@ static const struct state_definition states_config[] = {
         .state = ADMIN_INITIAL_REQUEST_READ,
         .on_read_ready = handleAdminInitialRequestRead,
     },
+    [ADMIN_INITIAL_REQUEST_WRITE] = {
+        .state = ADMIN_INITIAL_REQUEST_WRITE,
+        .on_read_ready = handleAdminInitialRequestWrite,
+    },
+
     [ADMIN_METRICS_SEND] = {
         .state = ADMIN_METRICS_SEND,
         .on_write_ready = handleAdminMetricsWrite,  // o handleAdminScopeWrite si es user
