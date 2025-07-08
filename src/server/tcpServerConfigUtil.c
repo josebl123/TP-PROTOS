@@ -304,6 +304,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
     }
 
     // Si hay un usuario específico, obtenemos sus métricas
+    log(INFO, "Fetching metrics for user: %s", data->target_username);
     user_metrics *um = get_or_create_user_metrics(data->target_username);
     if (!um) {
         log(ERROR, "User metrics not found for %s", data->target_username);
@@ -323,11 +324,11 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         print_user_metrics_tabbed(um, data->target_username, memfile);
         fflush(memfile);
 
-        size_t written = ftell(memfile);
+        const size_t written = ftell(memfile);
         fclose(memfile);
 
         // Header (3) + longitud (4) + cuerpo
-        size_t total_len = 3 + 4 + written;
+        const size_t total_len = 3 + 4 + written;
         char *full_buf = malloc(total_len);
         if (!full_buf) {
             free(buffer);
@@ -340,7 +341,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         full_buf[2] = 0x00; // STATUS_OK
 
         // Longitud en network byte order
-        uint32_t body_len = htonl(written);
+        const uint32_t body_len = htonl(written);
         memcpy(full_buf + 3, &body_len, 4);
 
         // Cuerpo
@@ -369,13 +370,29 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         data->metrics_buf_offset = 0;
 
         buffer_reset(data->clientBuffer); // limpiar buffer para próxima lectura
-        return ADMIN_MENU_READ;           // ← volvemos al menú
+        return CONFIG_DONE;           // ← volvemos al menú
     }
     return ADMIN_METRICS_SEND; // Continuar enviando métricas
 }
 
 
-unsigned handleAdminInitialRequestRead(struct selector_key *key) { clientConfigData *data = key->data; const int fd = key->fd; size_t available; const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available); const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT); if (numBytesRcvd <= 0) { if (numBytesRcvd == 0) { log(INFO, "Client socket %d closed connection", fd); } else { log(ERROR, "recv() failed on client socket %d: %s", fd, strerror(errno)); } return CONFIG_DONE; } log(INFO, "Handling admin initial request read on fd %d", fd); buffer_write_adv(data->clientBuffer, numBytesRcvd); if (numBytesRcvd < 4) return CONFIG_DONE;
+unsigned handleAdminInitialRequestRead(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    const int fd = key->fd;
+    size_t available;
+    const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+        log(INFO, "Client socket %d closed connection", fd);
+    } else {
+        log(ERROR, "recv() failed on client socket %d: %s", fd, strerror(errno));
+    }
+        return CONFIG_DONE;
+    }
+    log(INFO, "Handling admin initial request read on fd %d", fd);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    if (numBytesRcvd < 4) return CONFIG_DONE;
     const uint8_t version = buffer_read(data->clientBuffer);
     const uint8_t rsv = buffer_read(data->clientBuffer);
     const uint8_t cmd = buffer_read(data->clientBuffer); // 0=stats, 1=config
@@ -394,12 +411,13 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) { clientConfigD
     if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
 
     char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username, ptr + 4, ulen);
+    if (ulen > 0) memcpy(username,  buffer_read_ptr(data->clientBuffer, &available), ulen);
     data->target_ulen = ulen;
 
     // Save info in clientData
     data->admin_cmd = cmd;
-    strncpy(data->target_username, username, sizeof(data->target_username));
+    strncpy(data->target_username, username, ulen);
+    log(INFO, "target_username: %s", data->target_username);
 
     selector_set_interest_key(key, OP_WRITE);
     return ADMIN_INITIAL_REQUEST_WRITE;
@@ -408,7 +426,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) { clientConfigD
 
 unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
-    int fd = key->fd;
+    const int fd = key->fd;
 
     uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
 
