@@ -34,6 +34,7 @@ typedef enum {
 
 
     ADMIN_BUFFER_SIZE_CHANGE,    // Cambiar tamaño de buffer
+    ADMIN_BUFFER_SIZE_CHANGE_READ,
     ADMIN_ACCEPTS_NO_AUTH,       // Cambiar flag no-auth on
     ADMIN_REJECTS_NO_AUTH,       // Cambiar flag no-auth off
     ADMIN_ADD_USER,              // Agregar usuario

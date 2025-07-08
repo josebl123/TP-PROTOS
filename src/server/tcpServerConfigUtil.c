@@ -491,17 +491,14 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
     switch (code) {
         case 0x00: // change buffer size
-            selector_set_interest_key(key, OP_WRITE);
-            return ADMIN_BUFFER_SIZE_CHANGE;
-
+            selector_set_interest_key(key, OP_READ);
+            return ADMIN_BUFFER_SIZE_CHANGE_READ;
         case 0x01: // accepts-no-auth
             selector_set_interest_key(key, OP_WRITE);
             return ADMIN_ACCEPTS_NO_AUTH;
-
         case 0x02: // not-accepts-no-auth
             selector_set_interest_key(key, OP_WRITE);
             return ADMIN_REJECTS_NO_AUTH;
-
         case 0x03: // add-user
             selector_set_interest_key(key, OP_READ);
             return ADMIN_ADD_USER_READ;
@@ -519,32 +516,61 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
     }
 }
 
-unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
+unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
     clientConfigData *data = key->data;
     const int fd = key->fd;
-
     size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
-    if (available < 6) return ADMIN_BUFFER_SIZE_CHANGE;
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
 
-    uint32_t new_buf_size = ntohl(*(uint32_t *)(ptr + 2)); // salteamos VERSION, RSV
-
-    if (new_buf_size < 1024 || new_buf_size > 65536) {
-        log(ERROR, "Invalid buffer size: %u", new_buf_size);
-        uint8_t response[6] = { CONFIG_VERSION, 0x00, 0x01, 0x00, 0x00, 0x00 };  // 0x00 = código de cambio de buffer
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
-        return CONFIG_DONE;
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE;
+        }
+        log(ERROR, "recv() failed on client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
     }
 
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    buffer_read_adv(data->clientBuffer, 6);
+    if (numBytesRcvd < 5) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
+    // Saltar los primeros 4 bytes
+    buffer_read_adv(data->clientBuffer, 4); //TODO: MAGIC NUMBER
+
+    // Leer el nuevo buffer_size (por ejemplo, como uint32_t en network order)
+    uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->clientBuffer, &available));
+    log(INFO, "Received new buffer size: %u", new_buf_size);
+    int flag = 1;
+
+    if (new_buf_size < 1024 || new_buf_size > 65536) {
+        flag = 0;
+    }
 
     bufferSize = new_buf_size;
 
-    uint8_t response[6] = { CONFIG_VERSION, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    send(fd, response, sizeof(response), MSG_DONTWAIT);
 
-    return CONFIG_DONE;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, flag);
+    selector_set_interest_key(key, OP_WRITE);
+    return ADMIN_BUFFER_SIZE_CHANGE;
+}
+
+unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+    int flag = buffer_read(data->clientBuffer);
+
+    if (flag) {
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x00, 0x00 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    } else {
+        log(ERROR, "Failed to change buffer size");
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x00, 0x01 };
+        send(fd, response, sizeof(response), MSG_DONTWAIT);
+    }
+
+    return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
 unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
@@ -815,7 +841,7 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (numBytesRcvd < 2) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
+    if (numBytesRcvd < 2) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
 
     const uint8_t ulen = buffer_read(data->clientBuffer);
     if (ulen > MAX_USERNAME_LEN) {
@@ -965,6 +991,10 @@ static const struct state_definition states_config[] = {
     [ADMIN_BUFFER_SIZE_CHANGE] = {
         .state = ADMIN_BUFFER_SIZE_CHANGE,
         .on_write_ready = handleAdminBufferSizeChangeWrite,
+    },
+    [ADMIN_BUFFER_SIZE_CHANGE_READ] = {
+        .state = ADMIN_BUFFER_SIZE_CHANGE_READ,
+        .on_read_ready = handleAdminBufferSizeChangeRead,
     },
     [ADMIN_ACCEPTS_NO_AUTH] = {
         .state = ADMIN_ACCEPTS_NO_AUTH,
