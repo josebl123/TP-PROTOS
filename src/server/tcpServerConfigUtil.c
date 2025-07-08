@@ -235,30 +235,6 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
     close(key->fd);
 }
 
-unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    int fd = key->fd;
-
-    uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
-
-    if (data->admin_cmd == 0) { // STATS
-        response[2] = 0x00;
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
-        selector_set_interest_key(key, OP_WRITE);
-        return ADMIN_METRICS_SEND;
-    }
-    if (data->admin_cmd == 1) { // CONFIG
-        response[2] = 0x01;
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
-        selector_set_interest_key(key, OP_READ);
-        return ADMIN_COMMAND_READ;
-    }
-    response[2] = 0xFF;
-    send(fd, response, sizeof(response), MSG_DONTWAIT);
-    return CONFIG_DONE;
-}
-
-
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     int clntSocket = key->fd;
@@ -400,64 +376,76 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
 
 }
 
-unsigned handleAdminInitialRequestRead(struct selector_key *key) {
+
+unsigned handleAdminInitialRequestRead(struct selector_key *key) { clientConfigData *data = key->data; const int fd = key->fd; size_t available; const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available); const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT); if (numBytesRcvd <= 0) { if (numBytesRcvd == 0) { log(INFO, "Client socket %d closed connection", fd); } else { log(ERROR, "recv() failed on client socket %d: %s", fd, strerror(errno)); } return CONFIG_DONE; } log(INFO, "Handling admin initial request read on fd %d", fd); buffer_write_adv(data->clientBuffer, numBytesRcvd); if (numBytesRcvd < 4) return CONFIG_DONE;
+
+
+const uint8_t version = buffer_read(data->clientBuffer);
+const uint8_t rsv = buffer_read(data->clientBuffer);
+const uint8_t cmd = buffer_read(data->clientBuffer); // 0=stats, 1=config
+uint8_t ulen = buffer_read(data->clientBuffer);
+
+if (version != CONFIG_VERSION) {
+    log(ERROR, "Unsupported MAEP version: %u", version);
+    return CONFIG_DONE;
+}
+if (rsv != 0x00) {
+    log(ERROR, "Invalid reserved byte in admin request: %u", rsv);
+    return CONFIG_DONE;
+}
+log(INFO, "Admin command: %u, username length: %u", cmd, ulen);
+
+if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
+
+char username[MAX_USERNAME_LEN + 1] = {0};
+if (ulen > 0) memcpy(username, ptr + 4, ulen);
+
+// Save info in clientData
+data->admin_cmd = cmd;
+strncpy(data->target_username, username, sizeof(data->target_username));
+
+// uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
+//
+// if (cmd == 0) { // STATS
+//     response[2] = 0x00; // stats success
+//     send(fd, response, sizeof(response), MSG_DONTWAIT);
+//     selector_set_interest_key(key, OP_WRITE);
+//     return ADMIN_METRICS_SEND;
+// }
+// if (cmd == 1) {
+//     log(INFO, "Admin %s requested config", username);
+//     response[2] = 0x01; // config success
+//     send(fd, response, sizeof(response), MSG_DONTWAIT);
+//     selector_set_interest_key(key, OP_READ);
+//     return ADMIN_COMMAND_READ;
+// }
+// response[2] = 0xFF; // invalid command
+// send(fd, response, sizeof(response), MSG_DONTWAIT);
+// //TODO: sacar esto
+    selector_set_interest_key(key, OP_WRITE);
+return ADMIN_INITIAL_REQUEST_WRITE;
+}
+
+
+unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
-    const int fd = key->fd;
-    size_t available;
-    const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT);
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
-            log(INFO, "Client socket %d closed connection", fd);
-        } else {
-            log(ERROR, "recv() failed on client socket %d: %s", fd, strerror(errno));
-        }
-        return CONFIG_DONE;
-    }
-    log(INFO, "Handling admin initial request read on fd %d", fd);
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
-    if (numBytesRcvd < 4) return CONFIG_DONE;
-
-    const uint8_t version = buffer_read(data->clientBuffer);
-    const uint8_t rsv = buffer_read(data->clientBuffer);
-    const uint8_t cmd = buffer_read(data->clientBuffer); // 0=stats, 1=config
-    uint8_t ulen = buffer_read(data->clientBuffer);
-
-    if (version != CONFIG_VERSION) {
-        log(ERROR, "Unsupported MAEP version: %u", version);
-        return CONFIG_DONE;
-    }
-    if (rsv != 0x00) {
-        log(ERROR, "Invalid reserved byte in admin request: %u", rsv);
-        return CONFIG_DONE;
-    }
-    log(INFO, "Admin command: %u, username length: %u", cmd, ulen);
-
-    if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
-
-    char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username, ptr + 4, ulen);
-
-    // Save info in clientData
-    data->admin_cmd = cmd;
-    strncpy(data->target_username, username, sizeof(data->target_username));
+    int fd = key->fd;
 
     uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
 
-    if (cmd == 0) { // STATS
-        response[2] = 0x00; // stats success
+    if (data->admin_cmd == 0) { // STATS
+        response[2] = 0x00;
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_WRITE);
         return ADMIN_METRICS_SEND;
     }
-    if (cmd == 1) {
-        log(INFO, "Admin %s requested config", username);
-        response[2] = 0x01; // config success
+    if (data->admin_cmd == 1) { // CONFIG
+        response[2] = 0x01;
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_READ);
         return ADMIN_COMMAND_READ;
     }
-    response[2] = 0xFF; // invalid command
+    response[2] = 0xFF;
     send(fd, response, sizeof(response), MSG_DONTWAIT);
     return CONFIG_DONE;
 }
@@ -823,7 +811,7 @@ static const struct state_definition states_config[] = {
     },
     [ADMIN_INITIAL_REQUEST_WRITE] = {
         .state = ADMIN_INITIAL_REQUEST_WRITE,
-        .on_read_ready = handleAdminInitialRequestWrite,
+        .on_write_ready = handleAdminInitialRequestWrite,
     },
 
     [ADMIN_METRICS_SEND] = {
