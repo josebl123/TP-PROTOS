@@ -48,14 +48,15 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
 
     if (available < 3) return READ_CREDENTIALS;
 
-    uint8_t version = buffer_read(data->clientBuffer);
+    const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
     }
+    const uint8_t reserved = buffer_read(data->clientBuffer);
 
     data->userlen = buffer_read(data->clientBuffer);
-    data->passlen = buffer_read(data->clientBuffer);
+    // data->passlen = buffer_read(data->clientBuffer);
 
     log(INFO, "userlen: %u, passlen: %u", data->userlen, data->passlen);
 

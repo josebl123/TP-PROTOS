@@ -70,14 +70,15 @@ unsigned handleAuthRead(struct selector_key *key){
 unsigned handleAuthWrite(struct selector_key *key){
     const int clntSocket = key->fd; // Socket del cliente
     struct clientData *data = key->data; // Datos del cliente
+    log(INFO, "Writing authentication request to client socket %d", clntSocket);
 
     if (data->args->username == NULL || data->args->password == NULL) {
         log(ERROR, "Username or password not set");
         return ERROR_CLIENT; // Abortamos si no hay usuario o contraseña
     }
 
-    int usernameLength = strlen(data->args->username);
-    int passwordLength = strlen(data->args->password);
+    uint8_t usernameLength = strlen(data->args->username);
+    uint8_t passwordLength = strlen(data->args->password);
 
     // Longitud total de la respuesta
     int totalLength = 1 + 1 + 1 + usernameLength + 1 + passwordLength;
@@ -99,6 +100,12 @@ unsigned handleAuthWrite(struct selector_key *key){
     response[offset++] = (uint8_t)passwordLength;  // Longitud del password
     memcpy(response + offset, data->args->password, passwordLength); // PASSWORD
 
+    log(INFO, "Prepared authentication request for client socket %d: %s:%s",
+        clntSocket, data->args->username, data->args->password);
+
+    log(INFO, "User and pass to be sent: %s %s %d", response + 3, response + 8, *(response + 7) ); // Imprimir desde el offset 3 para omitir versión y RSV
+
+
     // Enviar al cliente (ejemplo: write o send)
     ssize_t sent = send(clntSocket, response, totalLength, 0);
     if( sent < 0) {
@@ -111,6 +118,7 @@ unsigned handleAuthWrite(struct selector_key *key){
         free(response);
         return DONE;
     }
+    log(INFO, "Sent authentication request to client socket %d", clntSocket);
 
     free(response);
     selector_set_interest_key(key, OP_READ);

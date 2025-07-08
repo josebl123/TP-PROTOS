@@ -83,7 +83,7 @@ int main(int argc, char** argv) {
       .handle_read =  client_read, // funcion para crear sockets activos
       .handle_write = client_write,
       .handle_close = client_close,
-  }, OP_READ, data);
+  }, OP_WRITE, data);
 
   if (selector_fd_set_nio(socket) == -1) {
     close(socket);

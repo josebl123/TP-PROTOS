@@ -165,5 +165,10 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         fprintf(stderr, "Error: No valid options provided.\n");
         exit(EXIT_FAILURE);
     }
+    if (login_user && login_pass) {
+        args->username = login_user;
+        args->password = login_pass;
+        args->type = BUFFER_SIZE; // Default type
+    }
 
 }
