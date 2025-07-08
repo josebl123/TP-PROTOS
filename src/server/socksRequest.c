@@ -291,7 +291,7 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
 unsigned handleIPv6RequestRead(struct selector_key *key) {
     clientData *data = key->data;
     size_t readLimit;
-    uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
+   buffer_read_ptr(data->clientBuffer, &readLimit);
     if (readLimit < 18) { // 16 bytes de IP + 2 bytes de puerto
         log(ERROR, "Incomplete IPv4 address received");
         return REQUEST_READ; // TODO definir codigos de error

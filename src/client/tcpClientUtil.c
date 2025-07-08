@@ -67,7 +67,6 @@ void client_write(struct selector_key *key){
     stm_handler_write(data->stm, key); //usar enum para detectar errores
 }
 void client_block(struct selector_key *key){
-    clientData *data = key->data;
     log(INFO, "Blocking client socket %d", key->fd);
     // Aquí podrías implementar lógica para bloquear el socket si es necesario
     // Por ejemplo, podrías registrar el socket en un estado de bloqueo o similar

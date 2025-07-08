@@ -49,16 +49,15 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     // Se necesitan al menos 3 bytes para version, rsv, userlen
     if (available < 3) return READ_CREDENTIALS;
 
-    uint8_t version = ptr[0];
+    const uint8_t version = ptr[0];
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
     }
-    uint8_t reserved = ptr[1];
     uint8_t userlen = ptr[2];
 
     // Se necesitan los bytes del username y al menos 1 byte para passlen
-    if (available < 3 + userlen + 1) return READ_CREDENTIALS;
+    if (available < 3 + (size_t)userlen + 1) return READ_CREDENTIALS;
 
     char username[MAX_USERNAME_LEN + 1] = {0};
     memcpy(username, ptr + 3, userlen);
@@ -478,7 +477,7 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
         return CONFIG_DONE;
     }
     const uint8_t code = buffer_read(data->clientBuffer);
-    if (code < 0x00 || code > 0x05) {
+    if ( code > 0x05) {
         log(ERROR, "Invalid admin config command code: %u", code);
         return CONFIG_DONE;
     }
@@ -592,7 +591,7 @@ unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
 }
 
 unsigned addUser( char * username, const uint8_t ulen,  char *password, const uint8_t passlen, const bool is_admin) {
-    if (socksArgs == NULL || socksArgs->users == NULL) {
+    if (socksArgs == NULL ) {
         log(ERROR, "socksArgs or users array is NULL");
         return false;
     }
@@ -697,7 +696,7 @@ unsigned handleAdminAddUserWrite(struct selector_key *key) {
 }
 
 int removeUser(char * username, uint8_t ulen) {
-        if (socksArgs == NULL || socksArgs->users == NULL) {
+        if (socksArgs == NULL ) {
         log(ERROR, "socksArgs or users array is NULL");
         return false;
     }
@@ -802,7 +801,7 @@ unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
 }
 
 int makeAdmin(char *username, uint8_t ulen) {
-    if (socksArgs == NULL || socksArgs->users == NULL) {
+    if (socksArgs == NULL) {
         log(ERROR, "socksArgs o users array es NULL");
         return false;
     }
@@ -913,8 +912,8 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
         log(ERROR, "Invalid reserved byte in admin menu request: %u", rsv);
         return CONFIG_DONE;
     }
-    uint8_t cmd = buffer_read(data->clientBuffer);
-    if (cmd < 0x00 || cmd > 0x01) {
+    const uint8_t cmd = buffer_read(data->clientBuffer);
+    if ( cmd > 0x01) {
         log(ERROR, "Invalid admin menu command code: %u", cmd);
         return CONFIG_DONE;
     }
