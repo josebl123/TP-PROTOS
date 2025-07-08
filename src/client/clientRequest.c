@@ -49,10 +49,12 @@ unsigned handleRequestRead(struct selector_key *key) {
     }
     uint8_t option = buffer_read(data->clientBuffer); // Leer la longitud del username
     if(option == 0x01) { // Solo soportamos un username
+        selector_set_interest_key(key, OP_WRITE); // Cambiamos a escritura
         return CONFIG_WRITE; // Abortamos si la longitud del username no es correcta
     }
     if( option == 0x00){
         log(INFO, "User login, reading stats");
+        selector_set_interest_key(key, OP_READ); // Cambiamos a lectura
         return STATS_READ; // Si el cliente quiere leer stats, pasamos a ese estado
 
     }
@@ -92,6 +94,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
     }
     log(INFO, "Sent %zd bytes to client socket %d", bytesSent, clntSocket);
     free(response); // Liberamos la memoria del response
+    selector_set_interest_key(key, OP_READ); // Cambiamos a lectura
     return REQUEST_READ; // Pasamos al siguiente estado de lectura
 
   }
