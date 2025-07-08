@@ -117,7 +117,7 @@ void print_connection_line(FILE *out, const char *username, const user_connectio
     } else {
         inet_ntop(AF_INET, &conn->ip_origin.addr.ipv4, ip_origin_str, sizeof(ip_origin_str));
     }
-    fprintf(out, "%-20s %-10s %-2s %-40s %-6u %-20s %-6u %-6d %-14lu %-14lu\n",
+    fprintf(out, "%-20s | %-10s | %-4s | %-35s | %-6u | %-20s | %-6u | %-6d | %-10lu | %-10lu\n",
         time_str,
         username,
         "A",
