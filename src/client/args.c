@@ -19,7 +19,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     int   global_metrics = 0; // Flag for global metrics
     char *specific_metrics_user = NULL; // User for specific metrics, not used in this context
     char *port        = "8080"; // Default port, not used in this context
-    char *addr        = "";
+    char *addr        = "127.0.0.1";
     char *add_user    = NULL;
     char *add_pass    = NULL; // Password for the user to add
     char *remove_user = NULL;
