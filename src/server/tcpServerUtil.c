@@ -44,6 +44,11 @@ void handleTcpClose(  struct selector_key *key) {
         free(data->remoteBuffer->data);
         free(data->remoteBuffer);
     }
+    if (data->remoteAddrInfo) {
+        freeaddrinfo(data->remoteAddrInfo); // Liberar la estructura de direcciones remotas
+    }
+    free(data->dnsRequest);
+    free(data->stm);
     free(data);
     // Close the client socket
     close(key->fd);
@@ -510,6 +515,7 @@ int initializeClientData(clientData *data) {
         return -1;
     }
     data->dnsRequest = dnsRequest; // Initialize the DNS request structure
+    data->remoteAddrInfo = NULL; // Initialize remote address info to NULL
 
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
