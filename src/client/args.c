@@ -15,6 +15,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
 
     int   bufsize     = 0;
     int   no_auth     = 0;
+    int   no_no_auth = 0; // Flag for no authentication, not used in this context
+    int   global_metrics = 0; // Flag for global metrics
+    char *specific_metrics_user = NULL; // User for specific metrics, not used in this context
     char *port        = "8080"; // Default port, not used in this context
     char *addr        = "";
     char *add_user    = NULL;
@@ -27,6 +30,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     struct option longopts[] = {
             {"buffer-size", required_argument,  NULL, 'b'},
             {"no-auth",     no_argument,        NULL, 'n'},
+            {"no-no-auth", no_argument, NULL, 'N'},
+            {"global-metrics", no_argument, NULL, 'g'},
+            {"specific-metrics", required_argument, NULL, 's'},
             {"port",        required_argument,  NULL, 'p'},
             {"address",     required_argument,  NULL, 'a'},
             {"add-user",    required_argument,  NULL, 'u'},
@@ -37,7 +43,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     };
 
     int ch;
-    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:gs:", longopts, NULL)) != -1) {
         switch (ch) {
             case 'b':
                 bufsize = atoi(optarg);
@@ -92,17 +98,33 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                     exit(EXIT_FAILURE);
                 }
                 break;
+            case 'g':
+                global_metrics = 1; // Enable global metrics
+                break;
+            case 's':
+                specific_metrics_user = optarg; // User for specific metrics, not used in this context
+                if (strlen(specific_metrics_user) == 0) {
+                    fprintf(stderr, "Invalid user for specific metrics: %s\n", optarg);
+                    exit(EXIT_FAILURE);
+                }
+                break;
+            case 'N':
+                no_no_auth = 1; // Flag for no authentication, not used in this context
+                break;
             default:
                 fprintf(stderr,
                         "Usage: %s [options]\n"
                         "  -b, --buffer-size <n>\n"
                         "  -n, --no-auth\n"
+                        "  -N, --no-no-auth\n"
                         "  -u, --add-user <user>\n"
                         "  -r, --remove-user <user>\n"
                         "  -m, --make-admin <user>\n"
                         "  -l, --login <user:pass>\n"
                         "  -p, --port <port>\n"
-                        "  -a, --address <addr>\n",
+                        "  -a, --address <addr>\n"
+                        "  -g, --global-metrics\n"
+                        "  -s, --specific-metrics <user>\n",
                         argv[0]);
                 exit(EXIT_FAILURE);
         }
@@ -114,12 +136,15 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "Usage: %s [options]\n"
                 "  -b, --buffer-size <n>\n"
                 "  -n, --no-auth\n"
+                "  -N, --no-no-auth\n"
                 "  -u, --add-user <user>\n"
                 "  -r, --remove-user <user>\n"
                 "  -m, --make-admin <user>\n"
                 "  -l, --login <user:pass>   (required)\n"
                 "  -p, --port <port>\n"
-                "  -a, --address <addr>\n",
+                "  -a, --address <addr>\n"
+                "  -g, --global-metrics\n"
+                "  -s, --specific-metrics <user>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -132,12 +157,15 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "Usage: %s [options]\n"
                 "  -b, --buffer-size <n>\n"
                 "  -n, --no-auth\n"
+                "  -N, --no-no-auth\n"
                 "  -u, --add-user <user>\n"
                 "  -r, --remove-user <user>\n"
                 "  -m, --make-admin <user>\n"
                 "  -l, --login <user:pass>   (required)\n"
                 "  -p, --port <port>\n"
-                "  -a, --address <addr>\n",
+                "  -a, --address <addr>\n"
+                        "  -g, --global-metrics\n"
+                        "  -s, --specific-metrics <user>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -146,29 +174,51 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     args->port = port; // Set the port for the client
 
     if (bufsize) {
+        args->stats = false;
         args->buffer_size = bufsize;
         args->type = BUFFER_SIZE;
     } else if (no_auth) {
+        args->stats = false;
         args->accepts_no_auth = true;
         args->type = ACCEPTS_NO_AUTH;
     } else if (add_user) {
+        args->stats = false;
         args->user.name = add_user;
         args->user.pass = add_pass;
         args->type = ADD_USER;
     } else if (remove_user) {
+        args->stats = false;
         args->user.name = remove_user;
         args->type = REMOVE_USER;
     } else if (make_admin) {
+        args->stats = false; // Disable stats for make admin
         args->user.name = make_admin;
         args->type = MAKE_ADMIN;
+    } else if (global_metrics) {
+        args->stats = true; // Enable global metrics
+    } else if (specific_metrics_user) {
+        args->stats = true; // Enable specific user metrics
+        args->target_user = specific_metrics_user; // Set the target user for specific metrics
+    } else if (no_no_auth) {
+        args->stats = false; // Disable stats for no authentication
+        args->accepts_no_auth = false; // Disable accepting no authentication
+        args->type = ACCEPTS_NO_AUTH; // Set the type to ACCEPTS_NO_AUTH
     } else {
-        fprintf(stderr, "Error: No valid options provided.\n");
-        exit(EXIT_FAILURE);
-    }
-    if (login_user && login_pass) {
-        args->username = login_user;
-        args->password = login_pass;
-        args->type = BUFFER_SIZE; // Default type
+            fprintf(stderr, "Error: No valid options provided.\n"
+            "Usage: %s [options]\n"
+                    "  -b, --buffer-size <n>\n"
+                    "  -n, --no-auth\n"
+                    "  -N, --no-no-auth\n"
+                    "  -u, --add-user <user>\n"
+                    "  -r, --remove-user <user>\n"
+                    "  -m, --make-admin <user>\n"
+                    "  -l, --login <user:pass>   (required)\n"
+                    "  -p, --port <port>\n"
+                    "  -a, --address <addr>\n"
+                    "  -g, --global-metrics\n"
+                    "  -s, --specific-metrics <user>\n",
+                    argv[0]);
+            exit(EXIT_FAILURE);
     }
 
 }
