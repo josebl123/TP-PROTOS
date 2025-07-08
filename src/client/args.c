@@ -18,6 +18,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     char *port        = "8080"; // Default port, not used in this context
     char *addr        = "";
     char *add_user    = NULL;
+    char *add_pass    = NULL; // Password for the user to add
     char *remove_user = NULL;
     char *make_admin  = NULL;
     char *login_user  = NULL;
@@ -36,7 +37,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     };
 
     int ch;
-    while ((ch = getopt_long(argc, argv, "b:nu:r:m:l:", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:", longopts, NULL)) != -1) {
         switch (ch) {
             case 'b':
                 bufsize = atoi(optarg);
@@ -44,9 +45,21 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
             case 'n':
                 no_auth = 1;
                 break;
-            case 'u':
+            case 'u': {
+                char *sep = strchr(optarg, ':');
+                if (!sep) {
+                    fprintf(stderr, "Invalid --add-user argument, must be user:password\n");
+                    exit(EXIT_FAILURE);
+                }
+                *sep = '\0';
                 add_user = optarg;
+                add_pass = sep + 1; // Password for the user to add
+                if (strlen(add_user) == 0 || strlen(add_pass) == 0) {
+                    fprintf(stderr, "Invalid --add-user argument, user and password must not be empty\n");
+                    exit(EXIT_FAILURE);
+                }
                 break;
+            }
             case 'r':
                 remove_user = optarg;
                 break;
@@ -95,7 +108,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         }
     }
 
-    if (!login_user) {
+    if (!login_user || !login_pass) {
         fprintf(stderr,
                 "Error: --login <user:pass> is required.\n\n"
                 "Usage: %s [options]\n"
@@ -110,6 +123,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    args->username = login_user; // Set the username for the client
+    args->password = login_pass; // Set the password for the client
 
     if (!addr) {
         fprintf(stderr, "Error: --address <addr> is required.\n\n"
@@ -137,7 +153,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->type = ACCEPTS_NO_AUTH;
     } else if (add_user) {
         args->user.name = add_user;
-        args->user.pass = login_pass; // Use the password from login
+        args->user.pass = add_pass;
         args->type = ADD_USER;
     } else if (remove_user) {
         args->user.name = remove_user;
@@ -145,10 +161,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     } else if (make_admin) {
         args->user.name = make_admin;
         args->type = MAKE_ADMIN;
-    } else if (login_user && login_pass) {
-        args->username = login_user;
-        args->password = login_pass;
-        args->type = BUFFER_SIZE; // Default type
     } else {
         fprintf(stderr, "Error: No valid options provided.\n");
         exit(EXIT_FAILURE);

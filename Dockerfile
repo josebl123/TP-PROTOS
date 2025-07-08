@@ -11,8 +11,8 @@ COPY . .
 # Build everything via your Makefile (which uses -D_GNU_SOURCE and links -lanl)
 RUN make clean all
 
-# Expose your SOCKS port if you like
-EXPOSE 1080
+# Expose your SOCKS port **and** the extra port 8080
+EXPOSE 1080 8080
 
-# Default to running your server
-CMD ["./bin/server"]
+# Default to running your server with the -a user:pass flag
+CMD ["./bin/server", "-a", "user:pass"]
