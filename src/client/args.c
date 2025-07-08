@@ -15,6 +15,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
 
     int   bufsize     = 0;
     int   no_auth     = 0;
+    char *port        = "8080"; // Default port, not used in this context
+    char *addr        = "";
     char *add_user    = NULL;
     char *remove_user = NULL;
     char *make_admin  = NULL;
@@ -24,6 +26,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     struct option longopts[] = {
             {"buffer-size", required_argument,  NULL, 'b'},
             {"no-auth",     no_argument,        NULL, 'n'},
+            {"port",        required_argument,  NULL, 'p'},
+            {"address",     required_argument,  NULL, 'a'},
             {"add-user",    required_argument,  NULL, 'u'},
             {"remove-user", required_argument,  NULL, 'r'},
             {"make-admin",  required_argument,  NULL, 'm'},
@@ -61,6 +65,20 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 login_pass = sep + 1;
                 break;
             }
+            case 'p':
+                port = optarg;
+                if (strlen(port) == 0 || atoi(port) <= 0 || atoi(port) > USHRT_MAX) {
+                    fprintf(stderr, "Invalid port: %s\n", optarg);
+                    exit(EXIT_FAILURE);
+                }
+                break;
+            case 'a':
+                addr = optarg;
+                if (strlen(addr) == 0) {
+                    fprintf(stderr, "Invalid address: %s\n", optarg);
+                    exit(EXIT_FAILURE);
+                }
+                break;
             default:
                 fprintf(stderr,
                         "Usage: %s [options]\n"
@@ -88,6 +106,22 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 argv[0]);
         exit(EXIT_FAILURE);
     }
+
+    if (!addr) {
+        fprintf(stderr, "Error: --address <addr> is required.\n\n"
+                "Usage: %s [options]\n"
+                "  -b, --buffer-size <n>\n"
+                "  -n, --no-auth\n"
+                "  -u, --add-user <user>\n"
+                "  -r, --remove-user <user>\n"
+                "  -m, --make-admin <user>\n"
+                "  -l, --login <user:pass>   (required)\n",
+                argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    args->addr = addr; // Set the address for the client
+    args->port = port; // Set the port for the client
 
     if (bufsize) {
         args->buffer_size = bufsize;
