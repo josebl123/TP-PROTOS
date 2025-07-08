@@ -43,43 +43,40 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     size_t available;
-    buffer_read_ptr(data->clientBuffer, &available);
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
 
-
+    // Se necesitan al menos 3 bytes para version, rsv, userlen
     if (available < 3) return READ_CREDENTIALS;
 
-    const uint8_t version = buffer_read(data->clientBuffer);
+    uint8_t version = ptr[0];
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
     }
-    const uint8_t reserved = buffer_read(data->clientBuffer);
+    uint8_t reserved = ptr[1];
+    uint8_t userlen = ptr[2];
 
-    data->userlen = buffer_read(data->clientBuffer);
-    // data->passlen = buffer_read(data->clientBuffer);
+    // Se necesitan los bytes del username y al menos 1 byte para passlen
+    if (available < 3 + userlen + 1) return READ_CREDENTIALS;
 
-    log(INFO, "userlen: %u, passlen: %u", data->userlen, data->passlen);
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    memcpy(username, ptr + 3, userlen);
+    username[userlen] = '\0';
 
-    buffer_read_ptr(data->clientBuffer, &available);
-    if (available < data->userlen + data->passlen) return READ_CREDENTIALS;
+    uint8_t passlen = ptr[3 + userlen];
 
-    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
-    if (ptr == NULL || available < data->userlen) {
-        log(ERROR, "Failed to read username from buffer");
-        return CONFIG_DONE;
-    }
-    memcpy(data->authInfo.username, ptr, data->userlen);
-    data->authInfo.username[data->userlen] = '\0';
-    buffer_read_adv(data->clientBuffer, data->userlen);
+    // Se necesitan los bytes del password
+    if (available < 3 + userlen + 1 + passlen) return READ_CREDENTIALS;
 
-    ptr = buffer_read_ptr(data->clientBuffer, &available);
-    if (ptr == NULL || available < data->passlen) {
-        log(ERROR, "Failed to read password from buffer");
-        return CONFIG_DONE;
-    }
-    memcpy(data->authInfo.password, ptr, data->passlen);
-    data->authInfo.password[data->passlen] = '\0';
-    buffer_read_adv(data->clientBuffer, data->passlen);
+    char password[MAX_PASSWORD_LEN + 1] = {0};
+    memcpy(password, ptr + 3 + userlen + 1, passlen);
+    password[passlen] = '\0';
+
+    // Avanzar el buffer
+    buffer_read_adv(data->clientBuffer, 3 + userlen + 1 + passlen);
+
+    strncpy(data->authInfo.username, username, MAX_USERNAME_LEN);
+    strncpy(data->authInfo.password, password, MAX_PASSWORD_LEN);
 
     log(INFO, "Received username: %s", data->authInfo.username);
     log(INFO, "Received password: %s", data->authInfo.password);
@@ -93,7 +90,7 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
             found = true;
             data->role = socksArgs->users[i].is_admin ? ROLE_ADMIN : ROLE_USER;
             break;
-            }
+        }
     }
     if (!found) {
         data->role = ROLE_INVALID;
