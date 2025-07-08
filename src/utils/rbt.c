@@ -120,10 +120,12 @@ void rbt_free(rbt_node* node) {
 
 
 void print_rbt_inorder(FILE *out, const char *username, rbt_node *node) {
-    if (!node) return;
+    if (!node) {
+        return;
+    }
     static int header_printed = 0;
     if (!header_printed) {
-        fprintf(out, "%-20s | %-10s | %-4s | %-35s | %-6s | %-20s | %-6s | %-6s | %-10s | %-10s\n",
+        fprintf(out, "\n%-20s | %-10s | %-4s | %-35s | %-6s | %-20s | %-6s | %-6s | %-10s | %-10s\n",
             "Hora", "Usuario", "Tipo", "IP Origen", "P.Orig", "Destino", "P.Dest", "Estado", "Bytes env", "Bytes rec");
         header_printed = 1;
     }

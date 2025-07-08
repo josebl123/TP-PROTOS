@@ -135,6 +135,10 @@ void print_connection_line(FILE *out, const char *username, const user_connectio
 
 void print_user_metrics_tabbed(user_metrics *um, const char *username, FILE *out) {
     if (!um || !username || !out) return;
+    if (um->connections_tree.root == NULL) {
+        fprintf(out, "\nNo connections found for user %s.\n\n", username);
+        return;
+    }
     print_rbt_inorder(out, username, um->connections_tree.root);
 }
 
