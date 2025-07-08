@@ -232,7 +232,6 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     selector_unregister_fd(key->s, key->fd);
-    close(key->fd);
 }
 
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
@@ -254,7 +253,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             print_global_metrics(memfile);
             fflush(memfile);
 
-            size_t written = ftell(memfile);
+            const size_t written = ftell(memfile);
             fclose(memfile);
 
             // Header (3) + longitud (4) + cuerpo
@@ -298,7 +297,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             data->metrics_buf_offset = 0;
 
             buffer_reset(data->clientBuffer);
-            return ADMIN_MENU_READ;
+            return CONFIG_DONE;
         }
 
         return ADMIN_METRICS_SEND;
@@ -436,7 +435,7 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
 
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    const ssize_t numBytesRcvd = recv(fd, ptr, (available < 3) ? available : 3, 0);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
@@ -448,7 +447,7 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (numBytesRcvd < 6) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte), 3 bytes relleno
+    if (numBytesRcvd < 3) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte)
 
     const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
@@ -486,6 +485,8 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             return ADMIN_REJECTS_NO_AUTH;
 
         case 0x03: // add-user
+            selector_set_interest_key(key, OP_READ);
+            return ADMIN_ADD_USER_READ;
         case 0x04: // remove-user
         case 0x05: // make-admin
             selector_set_interest_key(key, OP_WRITE);
@@ -543,7 +544,7 @@ unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
     return CONFIG_DONE;
 }
 
-unsigned addUser(char * username, char *password, bool is_admin) {
+unsigned addUser( char * username, const uint8_t ulen,  char *password, const uint8_t passlen, const bool is_admin) {
     if (socksArgs == NULL || socksArgs->users == NULL) {
         log(ERROR, "socksArgs or users array is NULL");
         return false;
@@ -552,9 +553,18 @@ unsigned addUser(char * username, char *password, bool is_admin) {
     for (size_t i = 0; i < MAX_USERS; i++) {
         if (socksArgs->users[i].name == NULL) {
             // Found an empty slot
-            strncpy(socksArgs->users[i].name, username, MAX_USERNAME_LEN);
-            strncpy(socksArgs->users[i].pass, password, MAX_PASSWORD_LEN);
+            socksArgs->users[i].name = username;
+            socksArgs->users[i].pass = password;
+            if (socksArgs->users[i].name == NULL || socksArgs->users[i].pass == NULL) {
+                log(ERROR, "Memory allocation failed for new user");
+                return false;
+            }
+            strncpy(socksArgs->users[i].name, username, ulen);
+            strncpy(socksArgs->users[i].pass, password, passlen);
+            socksArgs->users[i].name[ulen] = '\0'; // Initialize to empty string
+            socksArgs->users[i].pass[passlen] = '\0'; // Initialize to empty string
             socksArgs->users[i].is_admin = is_admin;
+            //TODO: need to free the mallocs. Seems complicated but is not really important for now
             return true;
         }
     }
@@ -562,38 +572,75 @@ unsigned addUser(char * username, char *password, bool is_admin) {
     return false;
 }
 
+unsigned handleAdminAddUserRead(struct selector_key * key) {
+    clientConfigData *data = key->data;
+    const int fd = key->fd;
+    size_t available;
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE;
+        }
+        log(ERROR, "recv() failed on client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
+    }
+
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+
+    if (numBytesRcvd < 4) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
+
+    const uint8_t ulen = buffer_read(data->clientBuffer);
+    if (ulen > MAX_USERNAME_LEN) {
+        log(ERROR, "Username length exceeds maximum: %u", ulen);
+        return CONFIG_DONE;
+    }
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    if (ulen > 0) memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
+
+    buffer_read_adv(data->clientBuffer, ulen);
+
+    const uint8_t passlen = buffer_read(data->clientBuffer);
+    if (passlen > MAX_PASSWORD_LEN) {
+        log(ERROR, "Password length exceeds maximum: %u", passlen);
+        return CONFIG_DONE;
+    }
+    char password[MAX_PASSWORD_LEN + 1] = {0};
+
+    if (passlen > 0) memcpy(password, buffer_read_ptr(data->clientBuffer, &available) ,passlen);
+    buffer_read_adv(data->clientBuffer, passlen);
+    int flag = 1;
+
+    log(INFO, "received username: %s", username);
+    log(INFO, "received password: %s", password);
+
+    if (!addUser(username, ulen, password, passlen,false)) {
+        flag = 0;
+    }
+
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, flag);
+    selector_set_interest_key(key, OP_WRITE);
+    return ADMIN_ADD_USER;
+
+}
+
 unsigned handleAdminAddUserWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     int fd = key->fd;
+    int flag = buffer_read(data->clientBuffer);
 
-    size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
-    if (available < 4) return ADMIN_ADD_USER;
-
-    uint8_t ulen = ptr[2];
-    uint8_t plen = ptr[3];
-    if (available < 4 + ulen + plen) return ADMIN_ADD_USER;
-
-    char username[MAX_USERNAME_LEN + 1] = {0};
-    char password[MAX_PASSWORD_LEN + 1] = {0};
-
-    memcpy(username, ptr + 4, ulen);
-    memcpy(password, ptr + 4 + ulen, plen);
-
-    buffer_read_adv(data->clientBuffer, 4 + ulen + plen);
-
-    if (addUser(username, password, false)) {
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x00 };
+    if (flag) {
+    const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x00 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
-        log(ERROR, "Failed to add user %s", username);
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x01 };
+        log(ERROR, "Failed to add user");
+    const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x01 };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
-    // buffer_reset(data->clientBuffer);
-    // selector_set_interest_key(key, OP_READ);
-    // return ADMIN_MENU_READ;
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
@@ -817,6 +864,10 @@ static const struct state_definition states_config[] = {
     [ADMIN_ADD_USER] = {
         .state = ADMIN_ADD_USER,
         .on_write_ready = handleAdminAddUserWrite,
+    },
+    [ADMIN_ADD_USER_READ] = {
+        .state = ADMIN_ADD_USER_READ,
+        .on_read_ready = handleAdminAddUserRead,
     },
     [ADMIN_REMOVE_USER] = {
         .state = ADMIN_REMOVE_USER,
