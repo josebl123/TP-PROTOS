@@ -62,6 +62,7 @@ unsigned handleHelloRead(struct selector_key *key) {
         }
         log(ERROR, "Unsupported authentication method or incomplete data");
         data->authMethod = NO_ACCEPTABLE_METHODS;
+        selector_set_interest_key(key, OP_WRITE); // Cambiar interés a escritura para enviar error
         return HELLO_WRITE;
       }
     return ERROR_CLIENT; // TODO definir codigos de error
