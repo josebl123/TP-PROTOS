@@ -117,9 +117,10 @@ void print_connection_line(FILE *out, const char *username, const user_connectio
     } else {
         inet_ntop(AF_INET, &conn->ip_origin.addr.ipv4, ip_origin_str, sizeof(ip_origin_str));
     }
-    fprintf(out, "%s\t%s\tA\t%s\t%u\t%s\t%u\t%d\t%lu\t%lu\n",
+    fprintf(out, "%-20s %-10s %-2s %-40s %-6u %-20s %-6u %-6d %-14lu %-14lu\n",
         time_str,
         username,
+        "A",
         ip_origin_str,
         conn->port_origin,
         conn->destination_name ? conn->destination_name : "-",
@@ -129,6 +130,8 @@ void print_connection_line(FILE *out, const char *username, const user_connectio
         conn->bytes_received
     );
 }
+
+
 
 void print_user_metrics_tabbed(user_metrics *um, const char *username, FILE *out) {
     if (!um || !username || !out) return;

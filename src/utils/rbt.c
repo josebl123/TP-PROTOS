@@ -121,9 +121,16 @@ void rbt_free(rbt_node* node) {
 
 void print_rbt_inorder(FILE *out, const char *username, rbt_node *node) {
     if (!node) return;
-    //TODO: ADD A HEADER TO THIS TABLE
+    static int header_printed = 0;
+    if (!header_printed) {
+        fprintf(out, "%-20s %-10s %-4s %-40s %-6s %-20s %-6s %-6s %-14s %-14s\n",
+            "Hora", "Usuario", "Tipo", "IP Origen", "P.Orig", "Destino", "P.Dest", "Estado", "Bytes Enviados", "Bytes Recibidos");
+        header_printed = 1;
+    }
     print_rbt_inorder(out, username, node->left);
     print_connection_line(out, username, &node->conn);
     print_rbt_inorder(out, username, node->right);
+    if (node->parent == NULL) header_printed = 0;
 }
+
 

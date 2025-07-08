@@ -9,8 +9,8 @@
 #include "selector.h"
 int tcpClientSocket(const char *host, const char *service);
 
-
 void client_close(struct selector_key *key);
 void client_read(struct selector_key *key);
 void client_write(struct selector_key *key);
 void client_block(struct selector_key *key);
+unsigned int handleStatsRead(struct selector_key *key);

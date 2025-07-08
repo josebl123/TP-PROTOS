@@ -54,12 +54,15 @@ unsigned handleAuthRead(struct selector_key *key){
 
     if (role == 0x00) {
         log(INFO, "Authenticated as USER");
+        selector_set_interest_key(key, OP_READ);
         return STATS_READ;
     }
     if (role == 0x01) {
         log(INFO, "Authenticated as ADMIN");
+        selector_set_interest_key(key, OP_WRITE);
         return REQUEST_WRITE;
     }
+
         log(ERROR, "Unknown role received: %02X", role);
         return ERROR_CLIENT;
 }
@@ -110,5 +113,6 @@ unsigned handleAuthWrite(struct selector_key *key){
     }
 
     free(response);
+    selector_set_interest_key(key, OP_READ);
     return AUTH_READ; // Cambiar al estado de lectura de autenticación
  }

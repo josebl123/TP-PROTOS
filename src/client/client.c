@@ -28,6 +28,7 @@ static const struct state_definition states[] = {
   [REQUEST_READ] =  { .state = REQUEST_READ, .on_read_ready = handleRequestRead },
   [REQUEST_WRITE] = { .state = REQUEST_WRITE, .on_write_ready = handleRequestWrite },
   [DONE] =          { .state = DONE, /*.on_arrival = clientClose */ },
+  [STATS_READ]= {.state = STATS_READ, .on_read_ready = handleStatsRead},
   [ERROR_CLIENT] =  { .state = ERROR_CLIENT,/*.on_arrival = clientClose*/},
 };
 

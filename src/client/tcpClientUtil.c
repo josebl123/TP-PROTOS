@@ -10,6 +10,8 @@
 #include "tcpClientUtil.h"
 #include "client.h"
 #define MAX_ADDR_BUFFER 128
+#define CONFIG_VERSION 0x01
+
 
 
 
@@ -70,4 +72,77 @@ void client_block(struct selector_key *key){
     // Aquí podrías implementar lógica para bloquear el socket si es necesario
     // Por ejemplo, podrías registrar el socket en un estado de bloqueo o similar
     // En este caso, simplemente estamos registrando la acción
+}
+
+unsigned int handleStatsRead(struct selector_key *key) {
+    clientData *data = (clientData *) key->data;
+    buffer *buf = data->clientBuffer;
+
+    size_t available;
+    uint8_t *read_ptr = buffer_read_ptr(buf, &available);
+
+    // Paso 1: leer header (3) + longitud (4)
+    if (available < 7) {
+        size_t space;
+        uint8_t *write_ptr = buffer_write_ptr(buf, &space);
+        ssize_t received = recv(key->fd, write_ptr, space, 0);
+        if (received <= 0) {
+            if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+                log(ERROR, "Connection closed or error while receiving stats header/length");
+                return ERROR_CLIENT;
+            }
+            return STATS_READ;
+        }
+        buffer_write_adv(buf, received);
+        return STATS_READ;
+    }
+
+    // Header
+    uint8_t version = read_ptr[0];
+    uint8_t status  = read_ptr[1];
+    uint8_t reserved = read_ptr[2];
+
+    if (version != CONFIG_VERSION) {
+        log(ERROR, "Invalid version in stats header");
+        buffer_read_adv(buf, 7);
+        return ERROR_CLIENT;
+    }
+    if (status != 0x00) {
+        log(ERROR, "Server responded with error status in stats request");
+        buffer_read_adv(buf, 7);
+        return ERROR_CLIENT;
+    }
+
+    // Longitud del cuerpo
+    uint32_t body_len;
+    memcpy(&body_len, read_ptr + 3, 4);
+    body_len = ntohl(body_len);
+
+    // Paso 2: esperar a tener el cuerpo completo
+    if (available < 7 + body_len) {
+        size_t space;
+        uint8_t *write_ptr = buffer_write_ptr(buf, &space);
+        ssize_t received = recv(key->fd, write_ptr, space, 0);
+        if (received <= 0) {
+            if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+                log(ERROR, "Connection closed or error while receiving stats body");
+                return ERROR_CLIENT;
+            }
+            return STATS_READ;
+        }
+        buffer_write_adv(buf, received);
+        return STATS_READ;
+    }
+
+    // Ya tenemos todo el mensaje: header + longitud + cuerpo
+    buffer_read_adv(buf, 7); // Consumimos header y longitud
+
+    // Imprimir el cuerpo
+    read_ptr = buffer_read_ptr(buf, &available);
+    for (uint32_t i = 0; i < body_len && i < available; i++) {
+        putchar(read_ptr[i]);
+    }
+    buffer_read_adv(buf, body_len);
+
+    return DONE;
 }

@@ -141,7 +141,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         size_t bufsize = METRICS_BUF_CHUNK;
         char *buffer = malloc(bufsize);
         if (!buffer) {
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
@@ -149,7 +149,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         FILE *memfile = fmemopen(buffer, bufsize, "w");
         if (!memfile) {
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
@@ -159,12 +159,10 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
             log(ERROR, "User metrics not found for %s", data->authInfo.username);
             fclose(memfile);
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
-
-        log(INFO, "Found metrics for user %s, tree root: %p", data->authInfo.username, (void *) um->connections_tree.root);
 
         print_user_metrics_tabbed(um, data->authInfo.username, memfile);
         fflush(memfile);
@@ -172,16 +170,42 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         size_t written = ftell(memfile);
         fclose(memfile);
 
-        data->metrics_buf = buffer;
-        data->metrics_buf_len = written;
+        // Header (3) + longitud (4) + cuerpo
+        size_t total_len = 3 + 4 + written;
+        char *full_buf = malloc(total_len);
+        if (!full_buf) {
+            free(buffer);
+            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
+            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+            return CONFIG_DONE;
+        }
+
+        // Header
+        full_buf[0] = CONFIG_VERSION;
+        full_buf[1] = 0x00;
+        full_buf[2] = 0x00;
+
+        // Longitud en network byte order
+        uint32_t body_len = htonl(written);
+        memcpy(full_buf + 3, &body_len, 4);
+
+        // Cuerpo
+        memcpy(full_buf + 7, buffer, written);
+
+        free(buffer);
+
+        data->metrics_buf = full_buf;
+        data->metrics_buf_len = total_len;
         data->metrics_buf_offset = 0;
     }
 
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
     const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
     if (sent < 0) {
-        uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 }; // fail
-        send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
         return CONFIG_DONE;
     }
 
@@ -192,9 +216,6 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         data->metrics_buf = NULL;
         data->metrics_buf_len = 0;
         data->metrics_buf_offset = 0;
-
-        uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x00 }; // success
-        send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
         return CONFIG_DONE;
     }
 
