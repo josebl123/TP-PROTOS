@@ -146,3 +146,13 @@ unsigned int handleStatsRead(struct selector_key *key) {
 
     return DONE;
 }
+void handleClientClose(const unsigned state, struct selector_key *key) {
+    clientData * data = key->data;
+    free(data->stm);
+    free(data->clientBuffer->data);
+    free(data->clientBuffer);
+    free(data);
+    log(INFO, "Client connection closed for fd %d", key->fd);
+    close(key->fd); // Close the socket
+    exit( state == DONE ? 0 : 1);
+}

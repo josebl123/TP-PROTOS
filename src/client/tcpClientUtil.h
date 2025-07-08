@@ -14,3 +14,4 @@ void client_read(struct selector_key *key);
 void client_write(struct selector_key *key);
 void client_block(struct selector_key *key);
 unsigned int handleStatsRead(struct selector_key *key);
+void handleClientClose(unsigned state, struct selector_key *key);
