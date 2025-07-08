@@ -87,7 +87,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                         "  -u, --add-user <user>\n"
                         "  -r, --remove-user <user>\n"
                         "  -m, --make-admin <user>\n"
-                        "  -l, --login <user:pass>\n",
+                        "  -l, --login <user:pass>\n"
+                        "  -p, --port <port>\n"
+                        "  -a, --address <addr>\n",
                         argv[0]);
                 exit(EXIT_FAILURE);
         }
@@ -102,7 +104,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -u, --add-user <user>\n"
                 "  -r, --remove-user <user>\n"
                 "  -m, --make-admin <user>\n"
-                "  -l, --login <user:pass>   (required)\n",
+                "  -l, --login <user:pass>   (required)\n"
+                "  -p, --port <port>\n"
+                "  -a, --address <addr>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -115,7 +119,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -u, --add-user <user>\n"
                 "  -r, --remove-user <user>\n"
                 "  -m, --make-admin <user>\n"
-                "  -l, --login <user:pass>   (required)\n",
+                "  -l, --login <user:pass>   (required)\n"
+                "  -p, --port <port>\n"
+                "  -a, --address <addr>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
