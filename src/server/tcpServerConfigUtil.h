@@ -37,6 +37,7 @@ typedef enum {
     ADMIN_ACCEPTS_NO_AUTH,       // Cambiar flag no-auth on
     ADMIN_REJECTS_NO_AUTH,       // Cambiar flag no-auth off
     ADMIN_ADD_USER,              // Agregar usuario
+    ADMIN_ADD_USER_READ,
     ADMIN_REMOVE_USER,           // Quitar usuario
     ADMIN_MAKE_ADMIN,            // Convertir usuario en admin
 
@@ -64,6 +65,8 @@ typedef struct {
     uint8_t admin_cmd; // 0 = stats, 1 = config
     char target_username[MAX_USERNAME_LEN];
     uint8_t target_ulen;
+    char target_password[MAX_PASSWORD_LEN];
+    uint8_t target_plen;
 } clientConfigData;
 
 #endif
