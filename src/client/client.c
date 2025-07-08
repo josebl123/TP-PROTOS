@@ -13,7 +13,6 @@
 #include "clientConfig.h"
 #include "../utils/logger.h"
 #include "../selector.h"
-#include "../utils/util.h"
 #include "../buffer.h"
 
 #include <stdio.h>
@@ -30,6 +29,8 @@ static const struct state_definition states[] = {
   [DONE] =          { .state = DONE, /*.on_arrival = clientClose */ },
   [STATS_READ]= {.state = STATS_READ, .on_read_ready = handleStatsRead},
   [ERROR_CLIENT] =  { .state = ERROR_CLIENT,/*.on_arrival = clientClose*/},
+  [CONFIG_READ] =   { .state = CONFIG_READ, .on_read_ready = handleConfigRead },
+  [CONFIG_WRITE] =  { .state = CONFIG_WRITE, .on_write_ready = handleConfigWrite },
 };
 
 int main(int argc, char** argv) {

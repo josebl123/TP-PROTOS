@@ -59,7 +59,7 @@ unsigned handleConfigRead(struct selector_key *key){
 unsigned handleConfigWrite(struct selector_key *key){
     const int clntSocket = key->fd; // Socket del cliente
     struct clientData *data = key->data; // Datos del cliente
-    char * response;
+    char * response = NULL; // Respuesta a enviar al cliente
 
     switch (data->args->type) {
        case BUFFER_SIZE:
@@ -108,9 +108,7 @@ unsigned handleConfigWrite(struct selector_key *key){
             break;
   default:
             log(ERROR, "Unknown configuration option: %d", data->args->type);
-            free(response);
             return ERROR_CLIENT; // Abortamos si la opción no es válida
-
      }
     ssize_t sent = send(clntSocket, response, strlen(response), 0);
     if( sent < 0) {
