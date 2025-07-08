@@ -63,18 +63,18 @@ unsigned handleConfigWrite(struct selector_key *key){
 
     switch (data->args->type) {
        case BUFFER_SIZE:
-         response = calloc(11,1);
-         response[0] = VERSION; // Version for configuration
-            response[1] = RSV; // Reserved byte for configuration
-            response[2] = OPTION_BUFFER_SIZE; // Option for buffer size
-          response[7] = data->args->buffer_size >> 24; // High byte
-            response[8] = data->args->buffer_size >> 16; // Middle high byte
-            response[9] = data->args->buffer_size >> 8; // Middle low byte
-            response[10] = data->args->buffer_size & 0xFF; // Low byte
+           response = calloc(11,1);
+           response[0] = VERSION; // Version for configuration
+           response[1] = RSV; // Reserved byte for configuration
+           response[2] = OPTION_BUFFER_SIZE; // Option for buffer size
+           response[7] = data->args->buffer_size >> 24; // High byte
+           response[8] = data->args->buffer_size >> 16; // Middle high byte
+           response[9] = data->args->buffer_size >> 8; // Middle low byte
+           response[10] = data->args->buffer_size & 0xFF; // Low byte
 
          break;
-   case ACCEPTS_NO_AUTH: // If the client accepts no authentication
-   response = calloc(8,1);
+       case ACCEPTS_NO_AUTH: // If the client accepts no authentication
+            response = calloc(8,1);
             response[0] = VERSION; // Version for configuration
             response[1] = RSV; // Reserved byte for configuration
             response[2] = data->args->accepts_no_auth ? OPTION_ACCEPTS_NO_AUTH : OPTION_NOT_ACCEPTS_NO_AUTH; // Option for accepts no auth
@@ -106,6 +106,10 @@ unsigned handleConfigWrite(struct selector_key *key){
             response[3] = strlen(data->args->user.name); // Length of username
             memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
             break;
+  default:
+            log(ERROR, "Unknown configuration option: %d", data->args->type);
+            free(response);
+            return ERROR_CLIENT; // Abortamos si la opción no es válida
 
      }
     ssize_t sent = send(clntSocket, response, strlen(response), 0);
@@ -121,6 +125,7 @@ unsigned handleConfigWrite(struct selector_key *key){
     }
 
     free(response);
+    selector_set_interest_key(key, OP_READ); // Desregistrar el socket del selector
     return CONFIG_READ; // Cambia
 
  }
