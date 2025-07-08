@@ -232,7 +232,6 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     selector_unregister_fd(key->s, key->fd);
-    close(key->fd);
 }
 
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
@@ -254,7 +253,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             print_global_metrics(memfile);
             fflush(memfile);
 
-            size_t written = ftell(memfile);
+            const size_t written = ftell(memfile);
             fclose(memfile);
 
             // Header (3) + longitud (4) + cuerpo
@@ -298,7 +297,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             data->metrics_buf_offset = 0;
 
             buffer_reset(data->clientBuffer);
-            return ADMIN_MENU_READ;
+            return CONFIG_DONE;
         }
 
         return ADMIN_METRICS_SEND;
