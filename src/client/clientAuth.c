@@ -12,43 +12,58 @@
 
 
 unsigned handleAuthRead(struct selector_key *key){
-    const int clntSocket = key->fd; // Socket del cliente
-    struct clientData *data = key->data; // Datos del cliente
+    const int clntSocket = key->fd;
+    struct clientData *data = key->data;
 
-    // Leer datos de autenticación del cliente
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
+
+    if (numBytesRcvd <= 0) {
+        if (numBytesRcvd == 0) {
+            log(INFO, "Client socket %d closed connection", clntSocket);
+        }
+        else {
+            log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+        }
+        return DONE;
+    }
+
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
-        return ERROR_CLIENT; // Abortamos si hubo error al recibir
-    }
-    if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
-        return DONE; // Cliente cerró la conexión
-    }
-    if(buffer_read(data->clientBuffer) != VERSION) {
-        log(ERROR, "Invalid version in authentication request from client socket %d", clntSocket);
-        return ERROR_CLIENT; // Abortamos si la versión no es correcta
-    }
-    if (buffer_read(data->clientBuffer) != RSV) {
-        log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
-        return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
-    }
-    uint8_t option = buffer_read(data->clientBuffer); // Leer la longitud del username
-    if(option == 0x01) { // Solo soportamos un username
-        return REQUEST_WRITE; // Abortamos si la longitud del username no es correcta
-    }
-    if( option == 0x00){
-      log(INFO, "User login, reading stats");
-        return STATS_READ; // Si el cliente quiere leer stats, pasamos a ese estado
+    size_t available;
+    uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &available);
+    if (available < 4) return AUTH_READ;
 
-     }
-     return ERROR_CLIENT; // Si no es un estado válido, abortamos
+    uint8_t version = readPtr[0];
+    uint8_t rsv     = readPtr[1];
+    uint8_t status  = readPtr[2];
+    uint8_t role    = readPtr[3];
 
-  }
+    if (version != VERSION || rsv != RSV) {
+        log(ERROR, "Invalid version or reserved byte");
+        return ERROR_CLIENT;
+    }
+
+    buffer_read_adv(data->clientBuffer, 4);
+
+    if (status != 0x00) {
+        log(ERROR, "Authentication failed: STATUS = %02X", status);
+        return ERROR_CLIENT;
+    }
+
+    if (role == 0x00) {
+        log(INFO, "Authenticated as USER");
+        return STATS_READ;
+    }
+    if (role == 0x01) {
+        log(INFO, "Authenticated as ADMIN");
+        return REQUEST_WRITE;
+    }
+        log(ERROR, "Unknown role received: %02X", role);
+        return ERROR_CLIENT;
+}
+
 unsigned handleAuthWrite(struct selector_key *key){
     const int clntSocket = key->fd; // Socket del cliente
     struct clientData *data = key->data; // Datos del cliente
@@ -96,6 +111,4 @@ unsigned handleAuthWrite(struct selector_key *key){
 
     free(response);
     return AUTH_READ; // Cambiar al estado de lectura de autenticación
-
-
  }

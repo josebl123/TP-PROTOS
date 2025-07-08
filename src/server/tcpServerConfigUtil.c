@@ -490,52 +490,26 @@ unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
 }
 
-int makeAdmin(char * username) {
+int makeAdmin(char *username) {
     if (socksArgs == NULL || socksArgs->users == NULL) {
-        log(ERROR, "socksArgs or users array is NULL");
+        log(ERROR, "socksArgs o users array es NULL");
         return false;
     }
 
-    for (size_t j = 0; j < MAX_ADMINS; j++) {
-        if (socksArgs->admins[j].name != NULL &&
-            strncmp(socksArgs->admins[j].name, username, MAX_USERNAME_LEN) == 0) {
-            log(ERROR, "User %s is already an admin", username);
-            return false;
-            }
-    }
-
-    // Busca el usuario y un slot libre en admins
-    int user_idx = -1;
-    int admin_slot = -1;
     for (size_t i = 0; i < MAX_USERS; i++) {
         if (socksArgs->users[i].name != NULL &&
             strncmp(socksArgs->users[i].name, username, MAX_USERNAME_LEN) == 0) {
-            user_idx = i;
-            break;
+            if (socksArgs->users[i].is_admin) {
+                log(ERROR, "El usuario %s ya es admin", username);
+                return false;
+            }
+            socksArgs->users[i].is_admin = true;
+            log(INFO, "Usuario %s promovido a admin", username);
+            return true;
             }
     }
-    for (size_t j = 0; j < MAX_ADMINS; j++) {
-        if (socksArgs->admins[j].name == NULL) {
-            admin_slot = j;
-            break;
-        }
-    }
-
-    if (user_idx == -1) {
-        log(ERROR, "User %s not found", username);
-        return false;
-    }
-    if (admin_slot == -1) {
-        log(ERROR, "Admin limit reached, cannot promote %s", username);
-        return false;
-    }
-
-    // Promueve al usuario a admin
-    strncpy(socksArgs->admins[admin_slot].name, username, MAX_USERNAME_LEN);
-    socksArgs->admins[admin_slot].is_admin = true;
-    socksArgs->users[user_idx].is_admin = true;
-    log(INFO, "User %s promoted to admin", username);
-    return true;
+    log(ERROR, "Usuario %s no encontrado", username);
+    return false;
 }
 unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
