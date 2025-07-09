@@ -98,8 +98,10 @@ unsigned int handleStatsRead(struct selector_key *key) {
 
     // Header
     uint8_t version = read_ptr[0];
-    uint8_t status  = read_ptr[1];
-    uint8_t reserved = read_ptr[2];
+    uint8_t reserved = read_ptr[1];
+    uint8_t status  = read_ptr[2];
+
+
 
     if (version != CONFIG_VERSION) {
         log(ERROR, "Invalid version in stats header");

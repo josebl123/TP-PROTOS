@@ -79,7 +79,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
     }
     response[0] = VERSION; // Version
     response[1] = RSV; // Reserved byte
-    response[2] = data->args->stats ? 0x00 : 0x01; // Option: 0x00 for stats, 0x01 for username
+    response[2] = data->args->stats ? 0x00 : 0x01; // Option: 0x00 for stats, 0x01 for config
     response[3] = usernameLength; // Length of username
     if (usernameLength > 0) {
         memcpy(response + 4, data->args->target_user, usernameLength); // Copiamos el username

@@ -13,6 +13,7 @@ struct clientArgs {
     char* password;
 
     bool stats;
+    bool user_stats;
     char* target_user;
 
     int verbose;

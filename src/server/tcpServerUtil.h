@@ -104,6 +104,7 @@ struct dnsReq{
   struct state_machine *stm; // Pointer to the state machine
   uint8_t authMethod;
   struct authInfo authInfo; // Authentication information
+  uint8_t isAnonymous; // Flag to indicate if the client is anonymous
 
   struct destinationInfo destination; // Destination information
 

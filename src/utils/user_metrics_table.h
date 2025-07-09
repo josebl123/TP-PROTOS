@@ -12,5 +12,6 @@ user_metrics *get_or_create_user_metrics(const char *username);
 user_metrics *find_user_metrics(const char *username);
 void print_all_user_metrics(FILE *out);
 void free_user_metrics_table(void);
+void remove_user_metrics(const char *username);
 
 #endif // USER_METRICS_TABLE_H

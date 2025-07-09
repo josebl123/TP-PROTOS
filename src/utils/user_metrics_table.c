@@ -2,6 +2,7 @@
 #include "user_metrics_table.h"
 #include <stdlib.h>
 #include <string.h>
+#include "utils/logger.h"
 
 typedef struct user_metrics_entry {
     char *username;
@@ -27,6 +28,7 @@ void init_user_metrics_table(void) {
 }
 
 user_metrics *get_or_create_user_metrics(const char *username) {
+    log(INFO, "get_or_create_user_metrics: %s", username);
     if (!username) return NULL;
     unsigned long index = hash_username(username);
     user_metrics_entry *entry = table[index];
@@ -84,5 +86,28 @@ void free_user_metrics_table(void) {
             entry = next;
         }
         table[i] = NULL;
+    }
+}
+void remove_user_metrics(const char *username) {
+    if (!username) return;
+    unsigned long index = hash_username(username);
+    user_metrics_entry *entry = table[index];
+    user_metrics_entry *prev = NULL;
+    while (entry) {
+        if (strcmp(entry->username, username) == 0) {
+            if (prev) {
+                prev->next = entry->next;
+            } else {
+                table[index] = entry->next;
+            }
+            log(INFO, "REMOVED USER METRICS FOR %s\n", username);
+            free(entry->username);
+            user_metrics_free(&entry->metrics);
+            free(entry);
+            return;
+        }
+        log(INFO, "did not find it ups");
+        prev = entry;
+        entry = entry->next;
     }
 }

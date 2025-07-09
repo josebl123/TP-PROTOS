@@ -31,6 +31,7 @@ typedef enum {
 
     ADMIN_COMMAND_READ,          // Esperar comandos de configuración
     ADMIN_MENU_READ,           // Nuevo estado: espera nuevo comando del admin
+    ADMIN_MENU_WRITE,          // Enviar menú de comandos al admin
 
 
     ADMIN_BUFFER_SIZE_CHANGE,    // Cambiar tamaño de buffer
@@ -47,6 +48,20 @@ typedef enum {
     CONFIG_DONE,                 // Finaliza sesión/config
     ERROR_CONFIG_CLIENT          // Error fatal
 } config_state;
+
+typedef enum {
+    GLOBAL_STATS ,
+    CONFIG
+}request_type;
+
+typedef enum {
+    ADMIN_CMD_CHANGE_BUFFER_SIZE   = 0x00,
+    ADMIN_CMD_ACCEPTS_NO_AUTH      = 0x01,
+    ADMIN_CMD_REJECTS_NO_AUTH      = 0x02,
+    ADMIN_CMD_ADD_USER            = 0x03,
+    ADMIN_CMD_REMOVE_USER         = 0x04,
+    ADMIN_CMD_MAKE_ADMIN          = 0x05
+} admin_command_code;
 
 
 // Información del cliente en la conexión de configuración

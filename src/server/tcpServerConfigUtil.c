@@ -62,6 +62,7 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     char username[MAX_USERNAME_LEN + 1] = {0};
     memcpy(username, ptr + 3, userlen);
     username[userlen] = '\0';
+    data->userlen = userlen;
 
     uint8_t passlen = ptr[3 + userlen];
 
@@ -143,7 +144,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         size_t bufsize = METRICS_BUF_CHUNK;
         char *buffer = malloc(bufsize);
         if (!buffer) {
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
+            uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
@@ -151,7 +152,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         FILE *memfile = fmemopen(buffer, bufsize, "w");
         if (!memfile) {
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
+            uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
@@ -161,7 +162,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
             log(ERROR, "User metrics not found for %s", data->authInfo.username);
             fclose(memfile);
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
+            uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
@@ -177,15 +178,15 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         char *full_buf = malloc(total_len);
         if (!full_buf) {
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, 0x00, 0x01 };
+            uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
             send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
             return CONFIG_DONE;
         }
 
         // Header
         full_buf[0] = CONFIG_VERSION;
-        full_buf[1] = 0x00;
-        full_buf[2] = 0x00;
+        full_buf[1] = RSV;
+        full_buf[2] = STATUS_OK;
 
         // Longitud en network byte order
         uint32_t body_len = htonl(written);
@@ -264,8 +265,8 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             }
 
             full_buf[0] = CONFIG_VERSION;
-            full_buf[1] = 0x00;
-            full_buf[2] = 0x00;
+            full_buf[1] = RSV;
+            full_buf[2] = STATUS_OK;
             uint32_t body_len = htonl(written);
             memcpy(full_buf + 3, &body_len, 4);
             memcpy(full_buf + 7, buffer, written);
@@ -305,6 +306,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
     // Si hay un usuario específico, obtenemos sus métricas
     log(INFO, "Fetching metrics for user: %s", data->target_username);
     user_metrics *um = get_or_create_user_metrics(data->target_username);
+
     if (!um) {
         log(ERROR, "User metrics not found for %s", data->target_username);
         return CONFIG_DONE;
@@ -336,8 +338,8 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
 
         // Header
         full_buf[0] = CONFIG_VERSION;
-        full_buf[1] = 0x00; // RSV
-        full_buf[2] = 0x00; // STATUS_OK
+        full_buf[1] = RSV; // RSV
+        full_buf[2] = STATUS_OK; // STATUS_OK
 
         // Longitud en network byte order
         const uint32_t body_len = htonl(written);
@@ -401,7 +403,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
     }
-    if (rsv != 0x00) {
+    if (rsv != RSV) {
         log(ERROR, "Invalid reserved byte in admin request: %u", rsv);
         return CONFIG_DONE;
     }
@@ -427,21 +429,21 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     const int fd = key->fd;
 
-    uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
+    uint8_t response[3] = {CONFIG_VERSION, RSV, STATUS_OK};
 
-    if (data->admin_cmd == 0) { // STATS
-        response[2] = 0x00;
+    if (data->admin_cmd == GLOBAL_STATS) { // STATS
+        response[2] = GLOBAL_STATS;
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_WRITE);
         return ADMIN_METRICS_SEND;
     }
-    if (data->admin_cmd == 1) { // CONFIG
-        response[2] = 0x01;
+    if (data->admin_cmd == CONFIG) { // CONFIG
+        response[2] = CONFIG;
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_READ);
         return ADMIN_COMMAND_READ;
     }
-    response[2] = 0xFF;
+    response[2] = 0xFF; //status fail pero con 0xff
     send(fd, response, sizeof(response), MSG_DONTWAIT);
     return CONFIG_DONE;
 }
@@ -472,7 +474,7 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
         return CONFIG_DONE;
     }
     const uint8_t rsv = buffer_read(data->clientBuffer);
-    if (rsv != 0x00) {
+    if (rsv != RSV) {
         log(ERROR, "Invalid reserved byte in admin config request: %u", rsv);
         return CONFIG_DONE;
     }
@@ -489,23 +491,23 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
 
     switch (code) {
-        case 0x00: // change buffer size
+        case ADMIN_CMD_CHANGE_BUFFER_SIZE: // change buffer size
             selector_set_interest_key(key, OP_READ);
             return ADMIN_BUFFER_SIZE_CHANGE_READ;
-        case 0x01: // accepts-no-auth
+        case ADMIN_CMD_ACCEPTS_NO_AUTH: // accepts-no-auth
             selector_set_interest_key(key, OP_WRITE);
             return ADMIN_ACCEPTS_NO_AUTH;
-        case 0x02: // not-accepts-no-auth
+        case ADMIN_CMD_REJECTS_NO_AUTH: // not-accepts-no-auth
             selector_set_interest_key(key, OP_WRITE);
             return ADMIN_REJECTS_NO_AUTH;
-        case 0x03: // add-user
+        case ADMIN_CMD_ADD_USER: // add-user
             selector_set_interest_key(key, OP_READ);
             return ADMIN_ADD_USER_READ;
-        case 0x04: // remove-user
+        case ADMIN_CMD_REMOVE_USER: // remove-user
             selector_set_interest_key(key, OP_READ);
             log(INFO, "handling remove user");
             return ADMIN_REMOVE_USER_READ;
-        case 0x05: // make-admin
+        case ADMIN_CMD_MAKE_ADMIN: // make-admin
             selector_set_interest_key(key, OP_READ);
             return ADMIN_MAKE_ADMIN_READ;
 
@@ -561,11 +563,11 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
     int flag = buffer_read(data->clientBuffer);
 
     if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x00, 0x00 };
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_CHANGE_BUFFER_SIZE, STATUS_OK };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to change buffer size");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x00, 0x01 };
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_CHANGE_BUFFER_SIZE, STATUS_FAIL };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -575,7 +577,7 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
 unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
     serverAcceptsNoAuth = true;
 
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x01, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ACCEPTS_NO_AUTH, STATUS_OK };
     send(key->fd, response, sizeof(response), MSG_DONTWAIT);
 
     return CONFIG_DONE;
@@ -584,7 +586,7 @@ unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
 unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
     serverAcceptsNoAuth = false;
 
-    uint8_t response[4] = { CONFIG_VERSION, RSV, 0x02, 0x00 };
+    uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REJECTS_NO_AUTH, STATUS_OK };
     send(key->fd, response, sizeof(response), MSG_DONTWAIT);
 
     return CONFIG_DONE;
@@ -684,11 +686,11 @@ unsigned handleAdminAddUserWrite(struct selector_key *key) {
     int flag = buffer_read(data->clientBuffer);
 
     if (flag) {
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x00 };
+    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_OK };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to add user");
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x03, 0x01 };
+    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_FAIL };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -717,6 +719,7 @@ int removeUser(char * username, uint8_t ulen) {
             size_t last_idx = last - 1;
             if (i != last_idx) {
                 // Libera el usuario a borrar
+                remove_user_metrics(socksArgs->users[i].name);
                 free(socksArgs->users[i].name);
                 free(socksArgs->users[i].pass);
                 // Copia el último usuario en la posición borrada
@@ -789,11 +792,11 @@ unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
     int flag = buffer_read(data->clientBuffer);
 
     if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x00 };
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_OK };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to remove user");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x04, 0x01 };
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_FAIL };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -871,11 +874,11 @@ unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
     int flag = buffer_read(data->clientBuffer);
 
     if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x05, 0x00 };
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_OK };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     } else {
         log(ERROR, "Failed to make admin user");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, 0x05, 0x01 };
+        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_FAIL };
         send(fd, response, sizeof(response), MSG_DONTWAIT);
     }
 
@@ -908,7 +911,7 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
         return CONFIG_DONE;
     }
     uint8_t rsv = buffer_read(data->clientBuffer);
-    if (rsv != 0x00) {
+    if (rsv != RSV) {
         log(ERROR, "Invalid reserved byte in admin menu request: %u", rsv);
         return CONFIG_DONE;
     }
@@ -934,21 +937,28 @@ unsigned handleAdminMenuRead(struct selector_key *key) {
     data->admin_cmd = cmd;
     strncpy(data->target_username, username, sizeof(data->target_username));
 
-    uint8_t response[3] = {CONFIG_VERSION, 0x00, 0x00};
+    selector_set_interest_key(key, OP_WRITE);
+    return ADMIN_MENU_WRITE;
+}
 
-    if (cmd == 0) { // STATS
-        response[2] = 0x00;
+unsigned handleAdminMenuWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    int fd = key->fd;
+
+    uint8_t response[3] = {CONFIG_VERSION, RSV, STATUS_OK};
+    if (data->admin_cmd == 0) { // STATS
+        response[2] = GLOBAL_STATS;
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_WRITE);
         return ADMIN_METRICS_SEND;
     }
-    if (cmd == 1) { // CONFIG
-        response[2] = 0x01;
+    if (data->admin_cmd == 1) { // CONFIG
+        response[2] = CONFIG;
         send(fd, response, sizeof(response), MSG_DONTWAIT);
         selector_set_interest_key(key, OP_READ);
         return ADMIN_COMMAND_READ;
     }
-    response[2] = 0xFF;
+    response[2] = 0xFF; // Error
     send(fd, response, sizeof(response), MSG_DONTWAIT);
     return CONFIG_DONE;
 }
@@ -1029,6 +1039,10 @@ static const struct state_definition states_config[] = {
     [ADMIN_MENU_READ] = {
         .state = ADMIN_MENU_READ,
         .on_read_ready = handleAdminMenuRead,
+    },
+    [ADMIN_MENU_WRITE] = {
+        .state = ADMIN_MENU_WRITE,
+        .on_write_ready = handleAdminMenuWrite,
     },
     [CONFIG_DONE] = {
         .state = CONFIG_DONE,

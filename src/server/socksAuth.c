@@ -171,6 +171,7 @@ unsigned handleAuthWrite(struct selector_key *key) {
             strcmp(socksArgs->users[i].pass, data->authInfo.password) == 0) {
             response[1] = 0; // Autenticación exitosa
             log(INFO, "Authentication successful for user: %s", data->authInfo.username);
+            data->isAnonymous = 0;
             metrics_new_connection(); // Actualiza las métricas por nueva conexión
             break; // Salir del bucle si la autenticación es exitosa
             }

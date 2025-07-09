@@ -17,6 +17,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     int   no_auth     = 0;
     int   no_no_auth = 0; // Flag for no authentication, not used in this context
     int   global_metrics = 0; // Flag for global metrics
+    int  own_user_metrics = 0; // Flag for specific metrics, not used in this context
     char *specific_metrics_user = NULL; // User for specific metrics, not used in this context
     char *port        = "8080"; // Default port, not used in this context
     char *addr        = "127.0.0.1";
@@ -31,7 +32,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
             {"buffer-size", required_argument,  NULL, 'b'},
             {"no-auth",     no_argument,        NULL, 'n'},
             {"no-no-auth", no_argument, NULL, 'N'},
-            {"global-metrics", no_argument, NULL, 'g'},
+            {"global-metrics", no_argument, NULL, 'G'},
+            {"own-user-metrics", no_argument, NULL, 'g'},
             {"specific-metrics", required_argument, NULL, 's'},
             {"port",        required_argument,  NULL, 'p'},
             {"address",     required_argument,  NULL, 'a'},
@@ -43,7 +45,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     };
 
     int ch;
-    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:gs:N", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:gs:N:G", longopts, NULL)) != -1) {
         switch (ch) {
             case 'b':
                 bufsize = atoi(optarg);
@@ -99,6 +101,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 }
                 break;
             case 'g':
+                own_user_metrics = 1; // Enable global metrics
+                break;
+            case 'G':
                 global_metrics = 1; // Enable global metrics
                 break;
             case 's':
@@ -123,7 +128,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                         "  -l, --login <user:pass>\n"
                         "  -p, --port <port>\n"
                         "  -a, --address <addr>\n"
-                        "  -g, --global-metrics\n"
+                        "  -G, --global-metrics\n"
+                        "  -g, --own-user-metrics\n"
                         "  -s, --specific-metrics <user>\n",
                         argv[0]);
                 exit(EXIT_FAILURE);
@@ -143,7 +149,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -l, --login <user:pass>   (required)\n"
                 "  -p, --port <port>\n"
                 "  -a, --address <addr>\n"
-                "  -g, --global-metrics\n"
+                "  -G, --global-metrics\n"
+                "  -g, --own-user-metrics\n"
                 "  -s, --specific-metrics <user>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
@@ -164,8 +171,9 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -l, --login <user:pass>   (required)\n"
                 "  -p, --port <port>\n"
                 "  -a, --address <addr>\n"
-                        "  -g, --global-metrics\n"
-                        "  -s, --specific-metrics <user>\n",
+                "  -G, --global-metrics\n"
+                "  -g, --own-user-metrics\n"
+                "  -s, --specific-metrics <user>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -194,9 +202,14 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->stats = false; // Disable stats for make admin
         args->user.name = make_admin;
         args->type = MAKE_ADMIN;
-    } else if (global_metrics) {
+    } else if (global_metrics ) {
         args->stats = true; // Enable global metrics
-    } else if (specific_metrics_user) {
+    }
+    else if (own_user_metrics) {
+        args->stats = true; // Enable specific user metrics
+        args->target_user = args->username; // Set the target user for specific metrics
+    }
+    else if (specific_metrics_user) {
         args->stats = true; // Enable specific user metrics
         args->target_user = specific_metrics_user; // Set the target user for specific metrics
     } else if (no_no_auth) {
@@ -215,7 +228,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                     "  -l, --login <user:pass>   (required)\n"
                     "  -p, --port <port>\n"
                     "  -a, --address <addr>\n"
-                    "  -g, --global-metrics\n"
+                    "  -G, --global-metrics\n"
+                    "  -g, --own-user-metrics\n"
                     "  -s, --specific-metrics <user>\n",
                     argv[0]);
             exit(EXIT_FAILURE);

@@ -87,9 +87,10 @@ void clientClose(const unsigned state, struct selector_key *key) {
     );
     metrics_connection_closed();
 
+    if (!data->isAnonymous) {
+        user_metrics_add_connection(user_metrics, &data->current_user_conn);
+    }
 
-    // Suponiendo que tenés el user_metrics del cliente:
-    user_metrics_add_connection(user_metrics, &data->current_user_conn);
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
 void remoteClose(const unsigned state, struct selector_key *key) {
@@ -521,6 +522,7 @@ int initializeClientData(clientData *data) {
 
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
+    data->isAnonymous = 1; // Initialize anonymous flag to true
     user_connection_init(&data->current_user_conn);
     return 0;
 }
