@@ -64,7 +64,7 @@ unsigned handleHelloRead(struct selector_key *key) {
         data->authMethod = NO_ACCEPTABLE_METHODS;
         selector_set_interest_key(key, OP_WRITE); // Cambiar interés a escritura para enviar error
         return HELLO_WRITE;
-      }
+    }
     return ERROR_CLIENT; // TODO definir codigos de error
 
 
@@ -94,6 +94,7 @@ unsigned handleHelloWrite(struct selector_key *key) {
         log(INFO, "Sent hello response to client socket %d", clntSocket);
         if (data->authMethod == AUTH_METHOD_NOAUTH) {
             log(INFO, "No authentication required, moving to request read state");
+            metrics_new_connection();
             return REQUEST_READ; // Si no se requiere autenticación, pasar al estado de lectura de solicitud
         }
         if (data->authMethod == AUTH_METHOD_PASSWORD) {
@@ -157,7 +158,6 @@ unsigned handleAuthRead(struct selector_key *key) {
     log(INFO, "Received password: %s", data->authInfo.password);
     selector_set_interest_key(key, OP_WRITE); // TODO: devuelve estado, chequear
     return AUTH_WRITE; // Cambiar al estado de escritura de autenticación
-
 }
 
 unsigned handleAuthWrite(struct selector_key *key) {
@@ -171,13 +171,10 @@ unsigned handleAuthWrite(struct selector_key *key) {
             strcmp(socksArgs->users[i].pass, data->authInfo.password) == 0) {
             response[1] = 0; // Autenticación exitosa
             log(INFO, "Authentication successful for user: %s", data->authInfo.username);
+            metrics_new_connection(); // Actualiza las métricas por nueva conexión
             break; // Salir del bucle si la autenticación es exitosa
             }
     }
-    if( strcmp(data->authInfo.username, "admi") == 0 && strcmp(data->authInfo.password, "userpass") == 0) {
-        response[1] = 0; // Autenticación exitosa
-        get_or_create_user_metrics(data->authInfo.username);
-    } //TODO: REMOVE, ADDED IN MERGE.
 
     const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
 
@@ -199,6 +196,7 @@ unsigned handleAuthWrite(struct selector_key *key) {
 
     if( response[1] != 0) { // Si la autenticación falló fixme: magic num
         log(ERROR, "Authentication failed for client socket %d", clntSocket);
+        add_new_login_error();
         return ERROR_CLIENT; // TODO definir codigos de error
     }
     if (sizeof(response) == numBytesSent) {

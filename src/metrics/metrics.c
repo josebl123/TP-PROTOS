@@ -25,11 +25,16 @@ void metrics_init(void) {
     metrics.ipv6_connections = 0;
     metrics.server_errors = 0;
     metrics.unsupported_input = 0;
+    metrics.login_errors = 0;
 }
 
 void metrics_new_connection(void) {
     metrics.total_connections++;
     metrics.current_connections++;
+}
+
+void add_new_login_error(void) {
+    metrics.login_errors++;
 }
 
 void metrics_connection_closed(void) {
@@ -178,7 +183,9 @@ void print_global_metrics(FILE *out) {
         "ipv4_connections: %lu\n"
         "ipv6_connections: %lu\n"
         "server_errors: %lu\n"
+        "auth_errors: %lu\n"
         "unsupported_input: %lu\n\n",
+
         metrics.total_connections,
         metrics.current_connections,
         metrics.bytes_client_to_remote,
@@ -190,6 +197,7 @@ void print_global_metrics(FILE *out) {
         metrics.ipv4_connections,
         metrics.ipv6_connections,
         metrics.server_errors,
+        metrics.login_errors,
         metrics.unsupported_input
     );
 }

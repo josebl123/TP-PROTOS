@@ -581,7 +581,6 @@ void handleMasterRead(struct selector_key *key) {
         close(new_socket);
         return;
     }
-    metrics_new_connection(); // Update metrics for new connection
     printf("Client socket %d registered with selector\n", new_socket);
 }
 

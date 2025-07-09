@@ -20,6 +20,7 @@ typedef struct {
     uint64_t dns_resolutions_connections;
     uint64_t ipv4_connections;
     uint64_t ipv6_connections;
+    uint64_t login_errors;
 } Metrics;
 
 typedef struct {
@@ -54,7 +55,7 @@ void user_connection_init(user_connection *conn);
 void fill_ip_address_from_origin(ip_address *dest, struct originInfo *origin);
 void print_global_metrics(FILE * out);
 void print_global_metrics_tabbed(FILE *out);
-
+void add_new_login_error(void);
 
 
 #endif // METRICS_H
