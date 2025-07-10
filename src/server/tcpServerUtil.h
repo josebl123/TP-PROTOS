@@ -130,7 +130,6 @@ typedef struct {
     struct state_machine *stm; // Pointer to the state machine
     buffer *buffer; // Buffer for reading/writing data
   bool connectionReady;
-  struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
 } remoteData;
 
 // Create, bind, and listen a new TCP server socket

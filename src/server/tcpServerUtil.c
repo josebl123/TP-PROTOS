@@ -47,6 +47,9 @@ void handleTcpClose(  struct selector_key *key) {
     if (data->pointerToFree) {
         freeaddrinfo(data->pointerToFree); // Liberar la estructura de direcciones remotas
     }
+    if (data->current_user_conn.destination_name) {
+        free(data->current_user_conn.destination_name); // Liberar el nombre de destino si fue asignado
+    }
     free(data->dnsRequest);
     free(data->stm);
     free(data);
@@ -235,9 +238,6 @@ int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct ad
     rData->connectionReady = 0; // Initialize the connection ready flag to false
     data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
     data->remoteSocket = remoteSocket; // Store the remote socket in client data
-
-
-    rData->remoteAddrInfo = remoteAddrInfo; // Store the remote address info for potential retries
 
     // Register the remote socket with the selector
     if (selector_register(key->s, remoteSocket, &relay_handler, OP_WRITE, rData) != SELECTOR_SUCCESS) {
