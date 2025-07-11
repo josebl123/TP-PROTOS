@@ -28,7 +28,7 @@
 #define PORT "1080"
 #define CONFIG_PORT "8080"
 #define INITIAL_MAX_CLIENTS 1000
-#define MAX_BUFFER_SIZE 2048
+#define MAX_BUFFER_SIZE 4096 // 4MB, maximum buffer size for client and remote buffers
 #define DEFAULT_TIMEOUT 5
 
 struct fdselector *selector = NULL; // Global selector variable

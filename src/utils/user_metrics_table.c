@@ -28,7 +28,6 @@ void init_user_metrics_table(void) {
 }
 
 user_metrics *get_or_create_user_metrics(const char *username) {
-    log(INFO, "get_or_create_user_metrics: %s", username);
     if (!username) return NULL;
     unsigned long index = hash_username(username);
     user_metrics_entry *entry = table[index];
