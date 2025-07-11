@@ -702,7 +702,7 @@ int removeUser(char * username, uint8_t ulen) {
         if (socksArgs == NULL ) {
         log(ERROR, "socksArgs or users array is NULL");
         return false;
-    }
+        }
 
     // Busca el usuario a borrar
     for (size_t i = 0; i < MAX_USERS; i++) {
@@ -717,20 +717,20 @@ int removeUser(char * username, uint8_t ulen) {
             }
             if (last == 0) return false; // No hay usuarios
 
-            size_t last_idx = last - 1;
+            const size_t last_idx = last - 1;
+            remove_user_metrics(socksArgs->users[i].name);
             if (i != last_idx) {
                 // Libera el usuario a borrar
-                remove_user_metrics(socksArgs->users[i].name);
-                free(socksArgs->users[i].name);
-                free(socksArgs->users[i].pass);
+                // free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
+                // free(socksArgs->users[i].pass);
                 // Copia el último usuario en la posición borrada
                 socksArgs->users[i].name = socksArgs->users[last_idx].name;
                 socksArgs->users[i].pass = socksArgs->users[last_idx].pass;
                 socksArgs->users[i].is_admin = socksArgs->users[last_idx].is_admin;
             } else {
                 // Si es el último, solo libera
-                free(socksArgs->users[i].name);
-                free(socksArgs->users[i].pass);
+                // free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
+                // free(socksArgs->users[i].pass);
             }
             // Marca el último como vacío
             socksArgs->users[last_idx].name = NULL;
@@ -745,7 +745,7 @@ int removeUser(char * username, uint8_t ulen) {
 }
 
 unsigned handleAdminRemoveUserRead(struct selector_key * key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     const int fd = key->fd;
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
@@ -770,7 +770,7 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         return CONFIG_DONE;
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
+    if (ulen > 0) memcpy(username,buffer_read_ptr(data->clientBuffer, &available),  ulen);
 
     buffer_read_adv(data->clientBuffer, ulen);
 
@@ -788,9 +788,9 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
 }
 
 unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    int fd = key->fd;
-    int flag = buffer_read(data->clientBuffer);
+    const clientConfigData *data = key->data;
+    const int fd = key->fd;
+    const int flag = buffer_read(data->clientBuffer);
 
     if (flag) {
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_OK };
