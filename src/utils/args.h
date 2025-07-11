@@ -26,6 +26,8 @@ struct socks5args
     char* mng_addr;
     unsigned short mng_port;
 
+    bool serverAcceptsNoAuth; // true si acepta conexiones sin autenticación, false si no
+
     bool disectors_enabled;
 
     struct users users[MAX_USERS];

@@ -34,7 +34,6 @@
 struct fdselector *selector = NULL; // Global selector variable
 struct socks5args *socksArgs = NULL; // Global args variable
 uint32_t bufferSize = MAX_BUFFER_SIZE; // Global buffer size
-bool serverAcceptsNoAuth = true; // Global flag for accepting connections without authentication
 
 void cleanup(const int signum) {
     // Handle cleanup on signal

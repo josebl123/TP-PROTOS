@@ -576,7 +576,7 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
 }
 
 unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
-    serverAcceptsNoAuth = true;
+    socksArgs->serverAcceptsNoAuth = true;
 
     uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ACCEPTS_NO_AUTH, STATUS_OK };
     send(key->fd, response, sizeof(response), MSG_DONTWAIT);
@@ -585,7 +585,7 @@ unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
 }
 
 unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
-    serverAcceptsNoAuth = false;
+    socksArgs->serverAcceptsNoAuth = false;
 
     uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REJECTS_NO_AUTH, STATUS_OK };
     send(key->fd, response, sizeof(response), MSG_DONTWAIT);

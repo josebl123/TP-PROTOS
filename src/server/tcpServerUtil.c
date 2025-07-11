@@ -60,6 +60,10 @@ void handleTcpClose(  struct selector_key *key) {
 void handleRemoteClose( struct selector_key *key) {
     log(INFO, "Closing remote socket %d", key->fd);
     remoteData *data = key->data;
+    // if (data->buffer) {
+    //     free(data->buffer->data);
+    //     free(data->buffer);
+    // }
 
     free(data->stm);
     free(data); // Liberar memoria de remoteData

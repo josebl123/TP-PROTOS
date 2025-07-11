@@ -53,7 +53,7 @@ unsigned handleHelloRead(struct selector_key *key) {
                 clientAcceptsNoAuth = true; // Si acepta autenticación sin contraseña
             }
         }
-        if (serverAcceptsNoAuth && clientAcceptsNoAuth) {
+        if (socksArgs->serverAcceptsNoAuth && clientAcceptsNoAuth) {
             data->authMethod = AUTH_METHOD_NOAUTH;
             log(INFO, "Selected authentication method: No Authentication");
             buffer_reset(data->clientBuffer);
