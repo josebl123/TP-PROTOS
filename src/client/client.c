@@ -20,7 +20,7 @@
 #include <unistd.h>   //close
 #include <errno.h>
 
-#define BUFFER_SIZE 1024 // Define a buffer size for client communication
+#define BUFFER_SIZE (1024  * 32) // Define a buffer size for client communication
 static const struct state_definition states[] = {
   [AUTH_READ] =     { .state = AUTH_READ, .on_read_ready = handleAuthRead },
   [AUTH_WRITE] =    { .state = AUTH_WRITE, .on_write_ready = handleAuthWrite },

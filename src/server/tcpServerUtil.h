@@ -1,7 +1,6 @@
 #ifndef TCPSERVERUTIL_H_
 #define TCPSERVERUTIL_H_
 
-#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <netinet/in.h>    // For struct in6_addr and struct sockaddr_in
 #include "../selector.h"  // Added include for selector_key struct
@@ -16,7 +15,6 @@
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
 #define MAX_ADDR_BUFFER 128
 
-static char addrBuffer[MAX_ADDR_BUFFER];
 enum socks5_auth_methods {
     AUTH_METHOD_NOAUTH = 0x00, // No authentication required
     AUTH_METHOD_PASSWORD = 0x02, // Username/password authentication
@@ -149,7 +147,7 @@ void handleClientRead(struct selector_key *key);
 
 void handleTCPEchoClientClose(struct selector_key *key);
 void setResponseStatus(clientData *data, int error);
-int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct addrinfo *remoteAddrInfo);
+int remoteSocketInit(const int remoteSocket, const struct selector_key *key);
 
 void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);

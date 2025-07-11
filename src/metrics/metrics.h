@@ -32,6 +32,8 @@ typedef struct {
 
 extern Metrics metrics;
 
+struct originInfo;
+
 void metrics_init(void);
 void metrics_new_connection(void);
 void metrics_connection_closed(void);

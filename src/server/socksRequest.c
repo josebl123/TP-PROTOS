@@ -15,6 +15,8 @@
 #include <time.h>
 #include  <signal.h>
 
+static char addrBuffer[MAX_ADDR_BUFFER];
+
 int setRemoteAddress(const int remoteSocket,remoteData *rData) {
 
     struct sockaddr_storage remoteAddr;
@@ -467,7 +469,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
         }
 
         // Successfully connected to a new address
-        if (remoteSocketInit(remoteSocket, key, addr->ai_next) < 0) {
+        if (remoteSocketInit(remoteSocket, key) < 0) {
             log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
             close(remoteSocket);
             remoteSocket = -1;

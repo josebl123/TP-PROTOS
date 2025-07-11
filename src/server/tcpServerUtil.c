@@ -1,4 +1,3 @@
-#define _GNU_SOURCE
 #include <sys/socket.h>
 #include <errno.h>
 #include <unistd.h>
@@ -22,6 +21,8 @@
 
 
 #define MAXPENDING 15 // Maximum outstanding connection requests TODO i changed this, was 5
+
+static char addrBuffer[MAX_ADDR_BUFFER];
 
 //MEGA TODO FIX THE CASING OF THE NAMES, IT IS A MESS (CAMEL CASE AND SNAKE CASE MIXED)
 
@@ -203,7 +204,7 @@ struct state_machine * createRemoteStateMachine() {
     stm_init(stm);
     return stm;
 }
-int remoteSocketInit(const int remoteSocket, struct selector_key *key, struct addrinfo *remoteAddrInfo) {
+int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
     clientData *data = key->data;
 
     buffer *remoteBuffer = malloc(sizeof(buffer)); // Create a buffer for the remote socket
@@ -439,7 +440,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             return -1;
         }
         log(INFO, "connect() in progress for remote address");
-        if (remoteSocketInit(remoteSock, key, NULL) < 0 ) {
+        if (remoteSocketInit(remoteSock, key) < 0 ) {
             log(ERROR, "Failed to initialize remote socket");
             return -1; // Initialize the remote socket
         }

@@ -26,6 +26,7 @@
 #define MAX_USERNAME_LEN 64
 #define MAX_PASSWORD_LEN 64
 
+static char addrBuffer[MAX_ADDR_BUFFER];
 
 
 unsigned handleAuthConfigRead(struct selector_key *key) {
@@ -67,7 +68,7 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     uint8_t passlen = ptr[3 + userlen];
 
     // Se necesitan los bytes del password
-    if (available < 3 + userlen + 1 + passlen) return READ_CREDENTIALS;
+    if (available < 3 + (size_t)userlen + 1 + passlen) return READ_CREDENTIALS;
 
     char password[MAX_PASSWORD_LEN + 1] = {0};
     memcpy(password, ptr + 3 + userlen + 1, passlen);
@@ -381,7 +382,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     clientConfigData *data = key->data;
     const int fd = key->fd;
     size_t available;
-    const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
     const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {

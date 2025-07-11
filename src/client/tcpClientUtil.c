@@ -97,14 +97,19 @@ unsigned int handleStatsRead(struct selector_key *key) {
     }
 
     // Header
-    uint8_t version = read_ptr[0];
-    uint8_t reserved = read_ptr[1];
-    uint8_t status  = read_ptr[2];
+    const uint8_t version = read_ptr[0];
+    const uint8_t reserved = read_ptr[1];
+    const uint8_t status  = read_ptr[2];
 
 
 
     if (version != CONFIG_VERSION) {
         log(ERROR, "Invalid version in stats header");
+        buffer_read_adv(buf, 7);
+        return ERROR_CLIENT;
+    }
+    if (reserved != RSV) {
+        log(ERROR, "Invalid reserved byte in stats header");
         buffer_read_adv(buf, 7);
         return ERROR_CLIENT;
     }

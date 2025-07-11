@@ -1,7 +1,6 @@
 //
 // Created by nicol on 6/24/2025.
 //
-#define _GNU_SOURCE
 #include <netdb.h>
 #include "server.h"
 /**
