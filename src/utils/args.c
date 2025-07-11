@@ -82,6 +82,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
     args->mng_port = DEFAULT_MNG_PORT;
 
     args->disectors_enabled = true;
+    args->serverAcceptsNoAuth = true; // por defecto acepta conexiones sin autenticación
 
     int c;
     int nusers = 0;
