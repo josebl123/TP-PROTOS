@@ -130,7 +130,6 @@ unsigned handleConfigWrite(struct selector_key *key){
         free(response);
         return DONE;
     }
-    log(INFO, "Sent %zd bytes to client socket %d", sent, clntSocket);
     free(response);
     selector_set_interest_key(key, OP_READ); // Desregistrar el socket del selector
     log(INFO, "Sent configuration response to client socket %d", clntSocket);

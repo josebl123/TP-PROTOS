@@ -541,7 +541,7 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
     buffer_read_adv(data->clientBuffer, 4); //TODO: MAGIC NUMBER
 
     // Leer el nuevo buffer_size (por ejemplo, como uint32_t en network order)
-    uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->clientBuffer, &available));
+    const uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->clientBuffer, &available));
     log(INFO, "Received new buffer size: %u", new_buf_size);
     int flag = 1;
 

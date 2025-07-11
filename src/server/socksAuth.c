@@ -21,7 +21,6 @@ unsigned handleHelloRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de saludo del cliente
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
-    log(INFO, "hello Read");
     // Recibir mensaje del cliente
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
@@ -91,7 +90,6 @@ unsigned handleHelloWrite(struct selector_key *key) {
         // Mensaje enviado correctamente, desregistrar el interés de escritura
     if ( sizeof(response) == numBytesSent) {
         selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir autenticación
-        log(INFO, "Sent hello response to client socket %d", clntSocket);
         if (data->authMethod == AUTH_METHOD_NOAUTH) {
             log(INFO, "No authentication required, moving to request read state");
             metrics_new_connection();
@@ -106,7 +104,6 @@ unsigned handleHelloWrite(struct selector_key *key) {
         return HELLO_READ;
 
     }
-    log(INFO, "Sent %zd bytes of hello response to client socket %d", numBytesSent, clntSocket);
     return HELLO_WRITE; // Mantener el estado de escritura de saludo
 }
 

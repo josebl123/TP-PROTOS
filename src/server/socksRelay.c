@@ -42,7 +42,7 @@ void update_selector_interests(struct selector_key *key, clientData *clientData,
 }
 unsigned handleRelayClientRead(struct selector_key *key){
     int clntSocket = key->fd; // Socket del cliente
-    const clientData *data = key->data;
+     clientData *data = key->data;
 
     // Recibir mensaje del cliente
     size_t writeLimit;
@@ -59,9 +59,7 @@ unsigned handleRelayClientRead(struct selector_key *key){
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_client_to_remote(numBytesRcvd);
-    clientData *client = (clientData *)key->data;
-    client->current_user_conn.bytes_sent += numBytesRcvd;
-    log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
+    data->current_user_conn.bytes_sent += numBytesRcvd;
 
     update_selector_interests(key, key->data, clntSocket, data->remoteSocket); // Actualizar los intereses del selector
 
@@ -86,7 +84,6 @@ unsigned handleRelayClientWrite(struct selector_key *key){
         return DONE; // TODO definir codigos de error
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
-    log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
     // metrics_add_bytes_remote_to_client(numBytesSent);
     clientData *client = (clientData *)key->data;
     client->current_user_conn.bytes_received += numBytesSent;
@@ -112,10 +109,8 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
         return RELAY_DONE; // TODO definir codigos de error
     }
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
-    log(INFO, "Received %zd bytes from remote socket %d", numBytesRcvd, remoteSocket);
     metrics_add_bytes_remote_to_client(numBytesRcvd);
-    clientData *client = (clientData *)key->data;
-    client->current_user_conn.bytes_received += numBytesRcvd;
+    data->client->current_user_conn.bytes_received += numBytesRcvd;
     // Aquí se podría procesar el mensaje recibido del socket remoto
     update_selector_interests(key, data->client, data->client_fd, remoteSocket); // Actualizar los intereses del selector
 
@@ -138,9 +133,8 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
         return RELAY_DONE ; // TODO definir codigos de error
     }
     buffer_read_adv(data->client->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
-    log(INFO, "Sent %zd bytes to remote socket %d", numBytesSent, remoteSocket);
     // metrics_add_bytes_client_to_remote(numBytesSent);
-    clientData *client = (clientData *)key->data;
+    clientData *client = key->data;
     client->current_user_conn.bytes_sent += numBytesSent;
 
 

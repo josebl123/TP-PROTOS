@@ -95,7 +95,6 @@ unsigned handleRequestWrite(struct selector_key *key) {
         free(response);
         return DONE; // Cliente cerró la conexión
     }
-    log(INFO, "Sent %zd bytes to client socket %d", bytesSent, clntSocket);
     free(response); // Liberamos la memoria del response
     selector_set_interest_key(key, OP_READ); // Cambiamos a lectura
     return REQUEST_READ; // Pasamos al siguiente estado de lectura

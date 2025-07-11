@@ -184,7 +184,6 @@ unsigned handleRequestWrite(struct selector_key *key) {
         return REQUEST_WRITE;
     }
     // Log the number of bytes sent
-    log(INFO, "Sent %zd bytes to client socket %d", numBytesSent, clntSocket);
     buffer_reset(data->clientBuffer); // Reset the client buffer for the next request
     if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", clntSocket);
@@ -359,7 +358,6 @@ unsigned handleRequestRead(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE; // TODO definir codigos de error
     }
-    log(INFO, "Received %zd bytes from client socket %d", numBytesRcvd, clntSocket);
 
     data->responseStatus = SOCKS5_SUCCEEDED; // Inicializar el estado de respuesta como éxito
 
