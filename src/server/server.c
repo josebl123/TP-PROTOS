@@ -100,7 +100,7 @@ int main(const int argc, char *argv[])
     }
     selector_register(selector, master_socket_config, &(fd_handler){
         .handle_read = handleConfigRead, // funcion para crear sockets activos
-        .handle_close = handleConfigClose,
+        .handle_close = handleServerConfigClose,
     }, OP_READ, NULL);
 
     if (selector_fd_set_nio(master_socket_config) == -1) {

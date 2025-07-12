@@ -618,6 +618,7 @@ unsigned addUser( char * username, const uint8_t ulen,  char *password, const ui
             socksArgs->users[i].name[ulen] = '\0'; // Initialize to empty string
             socksArgs->users[i].pass[passlen] = '\0'; // Initialize to empty string
             socksArgs->users[i].is_admin = is_admin;
+            socksArgs->users[i].is_added = true; // Mark as added
             //TODO: need to free the mallocs. Seems complicated but is not really important for now
             return true;
         }
@@ -724,6 +725,10 @@ int removeUser(char * username, uint8_t ulen) {
                 // free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
                 // free(socksArgs->users[i].pass);
                 // Copia el último usuario en la posición borrada
+                if (socksArgs->users[i].is_added) {
+                    free(socksArgs->users[i].name);
+                    free(socksArgs->users[i].pass);
+                }
                 socksArgs->users[i].name = socksArgs->users[last_idx].name;
                 socksArgs->users[i].pass = socksArgs->users[last_idx].pass;
                 socksArgs->users[i].is_admin = socksArgs->users[last_idx].is_admin;
@@ -736,6 +741,7 @@ int removeUser(char * username, uint8_t ulen) {
             socksArgs->users[last_idx].name = NULL;
             socksArgs->users[last_idx].pass = NULL;
             socksArgs->users[last_idx].is_admin = false;
+            socksArgs->users[last_idx].is_added = false; // Marca como no agregado
             return true;
         }
     }
@@ -1089,6 +1095,7 @@ int initializeClientConfigData(clientConfigData *data) {
     data->userlen = 0;
     data->passlen = 0;
     data->role = ROLE_INVALID;
+
     memset(data->authInfo.username, 0, sizeof(data->authInfo.username));
     memset(data->authInfo.password, 0, sizeof(data->authInfo.password));
     return 0;
@@ -1108,6 +1115,21 @@ void config_read(struct selector_key *key) {
 void config_write(struct selector_key *key) {
     clientConfigData *data = key->data;
     stm_handler_write(data->stm, key);
+}
+
+void handleServerConfigClose(struct selector_key *key) {
+    log(INFO, "Closing server socket %d", key->fd);
+    for (size_t i = 0; i < MAX_USERS; i++) {
+        if (socksArgs->users[i].is_added) {
+            free(socksArgs->users[i].name);
+            socksArgs->users[i].name = NULL;
+        }
+        if (socksArgs->users[i].is_added) {
+            free(socksArgs->users[i].pass);
+            socksArgs->users[i].pass = NULL;
+        }
+    }
+    close(key->fd);
 }
 
 void handleConfigClose(struct selector_key *key) {

@@ -40,6 +40,7 @@ user(char* s, struct users* user, bool is_admin)
         user->name = s;
         user->pass = p;
         user->is_admin = is_admin;
+        user->is_added = false;
     }
 }
 

@@ -16,6 +16,7 @@ struct users
     char* name;
     char* pass;
     bool is_admin; // true si es admin, false si es usuario normal
+    bool is_added;
 };
 
 struct socks5args
