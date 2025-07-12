@@ -23,7 +23,8 @@ SERVER_SRCS = $(SRC_DIR)/server/server.c \
        $(SRC_DIR)/server/tcpServerConfigUtil.c \
        $(SRC_DIR)/utils/user_metrics_table.c \
        $(SRC_DIR)/utils/args.c \
-       $(SRC_DIR)/server/socksRequest.c
+       $(SRC_DIR)/server/socksRequest.c \
+       $(SRC_DIR)/server/serverConfigActions.c \
 
 # Source files for the client
 CLIENT_SRCS = $(SRC_DIR)/client/client.c \
