@@ -27,7 +27,7 @@ unsigned handleHelloRead(struct selector_key *key) {
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
     bool clientAcceptsNoAuth = false;
-    if (numBytesRcvd < 0) {
+    if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT;
     }
@@ -37,7 +37,8 @@ unsigned handleHelloRead(struct selector_key *key) {
     }
     const uint8_t socksVersion = buffer_read(data->clientBuffer);
     const uint8_t totalAuthMethods = buffer_read(data->clientBuffer);
-    if( socksVersion == SOCKS_VERSION ){ //chequea que sea SOCKS5
+    if( socksVersion == SOCKS_VERSION ){
+        //chequea que sea SOCKS5
         for(int i =0; i < totalAuthMethods; i++){
             const int authMethod = buffer_read(data->clientBuffer); // Lee el método de autenticación
             if(authMethod == AUTH_METHOD_PASSWORD){
