@@ -18,6 +18,9 @@
 #include "args.h"
 
 #define MAX_ADDR_BUFFER 128
+#define MIN_CONFIG_READ_LENGTH 3 // Minimum bytes to read for config (version, rsv, userlen)
+#define METRICS_WRITE_HEADER_SIZE 3 // Size of the metrics header (version, rsv, status, role)
+#define METRICS_WRITE_PAYLOAD_LENGTH 4
 
 
 static char addrBuffer[MAX_ADDR_BUFFER];
@@ -42,34 +45,34 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
 
     // Se necesitan al menos 3 bytes para version, rsv, userlen
-    if (available < 3) return READ_CREDENTIALS;
+    if (available < MIN_CONFIG_READ_LENGTH) return READ_CREDENTIALS;
 
     const uint8_t version = ptr[0];
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
         return CONFIG_DONE;
     }
-    uint8_t userlen = ptr[2];
+    const uint8_t userlen = ptr[2];
 
     // Se necesitan los bytes del username y al menos 1 byte para passlen
-    if (available < 3 + (size_t)userlen + 1) return READ_CREDENTIALS;
+    if (available < MIN_CONFIG_READ_LENGTH + (size_t)userlen + 1) return READ_CREDENTIALS;
 
     char username[MAX_USERNAME_LEN + 1] = {0};
-    memcpy(username, ptr + 3, userlen);
+    memcpy(username, ptr + MIN_CONFIG_READ_LENGTH, userlen);
     username[userlen] = '\0';
     data->userlen = userlen;
 
-    uint8_t passlen = ptr[3 + userlen];
+    const uint8_t passlen = ptr[MIN_CONFIG_READ_LENGTH + userlen];
 
     // Se necesitan los bytes del password
-    if (available < 3 + (size_t)userlen + 1 + passlen) return READ_CREDENTIALS;
+    if (available < MIN_CONFIG_READ_LENGTH + (size_t)userlen + 1 + passlen) return READ_CREDENTIALS;
 
     char password[MAX_PASSWORD_LEN + 1] = {0};
-    memcpy(password, ptr + 3 + userlen + 1, passlen);
+    memcpy(password, ptr + MIN_CONFIG_READ_LENGTH + userlen + 1, passlen);
     password[passlen] = '\0';
 
     // Avanzar el buffer
-    buffer_read_adv(data->clientBuffer, 3 + userlen + 1 + passlen);
+    buffer_read_adv(data->clientBuffer, MIN_CONFIG_READ_LENGTH + userlen + 1 + passlen);
 
     strncpy(data->authInfo.username, username, MAX_USERNAME_LEN);
     strncpy(data->authInfo.password, password, MAX_PASSWORD_LEN);
@@ -97,7 +100,7 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
 }
 
 unsigned handleAuthConfigWrite(struct selector_key *key) {
-    int clntSocket = key->fd;
+    const int clntSocket = key->fd;
     clientConfigData *data = key->data;
 
     uint8_t response[4] = { CONFIG_VERSION, RSV, STATUS_FAIL, ROLE_USER };
@@ -121,7 +124,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
     }
 
     log(INFO, "Authenticated client %s as %s", data->authInfo.username,
-        data->role == ROLE_ADMIN ? "ADMIN" : "USER");
+    data->role == ROLE_ADMIN ? "ADMIN" : "USER");
 
     if (data->role != ROLE_ADMIN) {
         selector_set_interest_key(key, OP_WRITE);
@@ -133,10 +136,10 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
 
 unsigned handleUserMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
-    int clntSocket = key->fd;
+    const int clntSocket = key->fd;
 
     if (data->metrics_buf == NULL) {
-        size_t bufsize = METRICS_BUF_CHUNK;
+        const size_t bufsize = METRICS_BUF_CHUNK;
         char *buffer = malloc(bufsize);
         if (!buffer) {
             const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
@@ -157,7 +160,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
             log(ERROR, "User metrics not found for %s", data->authInfo.username);
             fclose(memfile);
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
             send(clntSocket, response, sizeof(response), 0);
             return CONFIG_DONE;
         }
@@ -165,15 +168,15 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         print_user_metrics_tabbed(um, data->authInfo.username, memfile);
         fflush(memfile);
 
-        size_t written = ftell(memfile);
+        const size_t written = ftell(memfile);
         fclose(memfile);
 
         // Header (3) + longitud (4) + cuerpo
-        size_t total_len = 3 + 4 + written;
+        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
         char *full_buf = malloc(total_len);
         if (!full_buf) {
             free(buffer);
-            uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
             send(clntSocket, response, sizeof(response), 0);
             return CONFIG_DONE;
         }
@@ -184,11 +187,11 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         full_buf[2] = STATUS_OK;
 
         // Longitud en network byte order
-        uint32_t body_len = htonl(written);
-        memcpy(full_buf + 3, &body_len, 4);
+        const uint32_t body_len = htonl(written);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
 
         // Cuerpo
-        memcpy(full_buf + 7, buffer, written);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
 
         free(buffer);
 
@@ -231,11 +234,11 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
 
 unsigned handleAdminMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
-    int clntSocket = key->fd;
+    const int clntSocket = key->fd;
 
     if (data->target_ulen == 0) {
         if (data->metrics_buf == NULL) {
-            size_t bufsize = METRICS_BUF_CHUNK;
+            const size_t bufsize = METRICS_BUF_CHUNK;
             char *buffer = malloc(bufsize);
             if (!buffer) return CONFIG_DONE;
 
@@ -252,7 +255,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             fclose(memfile);
 
             // Header (3) + longitud (4) + cuerpo
-            size_t total_len = 3 + 4 + written;
+            const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
             char *full_buf = malloc(total_len);
             if (!full_buf) {
                 free(buffer);
@@ -262,9 +265,9 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
             full_buf[0] = CONFIG_VERSION;
             full_buf[1] = RSV;
             full_buf[2] = STATUS_OK;
-            uint32_t body_len = htonl(written);
-            memcpy(full_buf + 3, &body_len, 4);
-            memcpy(full_buf + 7, buffer, written);
+            const uint32_t body_len = htonl(written);
+            memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
+            memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
 
             free(buffer);
 
@@ -307,7 +310,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         return CONFIG_DONE;
     }
     if (data->metrics_buf == NULL) {
-        size_t bufsize = METRICS_BUF_CHUNK;
+        const size_t bufsize = METRICS_BUF_CHUNK;
         char *buffer = malloc(bufsize);
         if (!buffer) return CONFIG_DONE;
 
@@ -324,7 +327,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         fclose(memfile);
 
         // Header (3) + longitud (4) + cuerpo
-        const size_t total_len = 3 + 4 + written;
+        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
         char *full_buf = malloc(total_len);
         if (!full_buf) {
             free(buffer);
@@ -338,10 +341,10 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
 
         // Longitud en network byte order
         const uint32_t body_len = htonl(written);
-        memcpy(full_buf + 3, &body_len, 4);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
 
         // Cuerpo
-        memcpy(full_buf + 7, buffer, written);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH , buffer, written);
 
         free(buffer);
 
@@ -421,7 +424,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
 
 
 unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     const int fd = key->fd;
 
     uint8_t response[3] = {CONFIG_VERSION, RSV, STATUS_OK};
@@ -438,18 +441,18 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
         selector_set_interest_key(key, OP_READ);
         return ADMIN_COMMAND_READ;
     }
-    response[2] = 0xFF; //status fail pero con 0xff
+    response[2] = 0xFF; //status fail pero con 0xff todo:esto lo tenemos definido asi?
     send(fd, response, sizeof(response), 0);
     return CONFIG_DONE;
 }
 
 unsigned handleAdminConfigRead(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     const int fd = key->fd;
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
 
-    const ssize_t numBytesRcvd = recv(fd, ptr, (available < 3) ? available : 3, 0);
+    const ssize_t numBytesRcvd = recv(fd, ptr, available < 3 ? available : 3, 0);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
@@ -478,11 +481,6 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
         log(ERROR, "Invalid admin config command code: %u", code);
         return CONFIG_DONE;
     }
-    // data->admin_cmd =code;
-    // if (data->admin_cmd < 0x00 || data->admin_cmd > 0x01) {
-    //     log(ERROR, "Invalid admin command: %u", data->admin_cmd);
-    //     return CONFIG_DONE;
-    // }
 
 
     switch (code) {
