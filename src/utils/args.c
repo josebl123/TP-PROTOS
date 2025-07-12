@@ -128,7 +128,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
             {
                 user(optarg, args->users + nusers, false);
                 nusers++;
-                args->serverAcceptsNoAuth = true; // si hay usuarios, no acepta conexiones sin autenticación
+                args->serverAcceptsNoAuth = false; // si hay usuarios, no acepta conexiones sin autenticación
             }
             break;
         case 'a':
@@ -141,7 +141,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
           {
               user(optarg, args->users + nusers, true);
               nusers++;
-              args->serverAcceptsNoAuth = true; // si hay usuarios, no acepta conexiones sin autenticación
+              args->serverAcceptsNoAuth = false; // si hay usuarios, no acepta conexiones sin autenticación
           }
             break;
         case 'v':
