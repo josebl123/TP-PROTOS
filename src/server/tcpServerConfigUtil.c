@@ -752,6 +752,7 @@ void handleServerConfigClose(struct selector_key *key) {
             socksArgs->users[i].pass = NULL;
         }
     }
+    free_user_metrics_table();
     close(key->fd);
 }
 
