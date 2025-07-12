@@ -6,6 +6,7 @@
 #include "../metrics/metrics.h"
 
 #define METRICS_TABLE_SIZE 128
+#define ANONYMOUS_USER "anonymous"
 
 void init_user_metrics_table(void);
 user_metrics *get_or_create_user_metrics(const char *username);

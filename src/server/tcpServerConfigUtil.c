@@ -259,6 +259,11 @@ if (data->target_ulen == 0) {
                 }
             }
         }
+        user_metrics *um = get_or_create_user_metrics(ANONYMOUS_USER);
+        if (um && um->connections_tree.root != NULL) {
+            print_all_users_metrics_tabbed(um, ANONYMOUS_USER, memfile);
+            any_connection = true;
+        }
         if (!any_connection) {
             fprintf(memfile, "\nNO USER CONNECTIONS YET\n\n");
         }

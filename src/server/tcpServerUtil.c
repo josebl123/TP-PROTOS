@@ -9,6 +9,8 @@
 #include "../utils/logger.h"
 #include "../utils/util.h"
 #include "tcpServerUtil.h"
+
+#include "args.h"
 #include "socksAuth.h"
 #include "socksRelay.h"
 #include "server/server.h"
@@ -48,7 +50,7 @@ void handleTcpClose(  struct selector_key *key) {
     if (data->pointerToFree) {
         freeaddrinfo(data->pointerToFree); // Liberar la estructura de direcciones remotas
     }
-    user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
+    user_metrics * user_metric = get_or_create_user_metrics(data->authInfo.username);
 
     char time_str[64];
     struct tm tm_info;
@@ -56,7 +58,11 @@ void handleTcpClose(  struct selector_key *key) {
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
     metrics_connection_closed();
 
-    if (!data->isAnonymous) {
+    if (!data->isAnonymous ) {
+        user_metrics_add_connection(user_metric, &data->current_user_conn);
+    }
+    else if (data->isAnonymous && socksArgs->serverAcceptsNoAuth) {
+        user_metrics * user_metrics = get_or_create_user_metrics(ANONYMOUS_USER);
         user_metrics_add_connection(user_metrics, &data->current_user_conn);
     }
 

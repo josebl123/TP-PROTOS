@@ -8,6 +8,7 @@
 #include <errno.h>
 #include <getopt.h>
 #include "args.h"
+#include "user_metrics_table.h"
 void
 parse_client_args(const int argc, char** argv, struct clientArgs* args){
 
@@ -45,7 +46,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     };
 
     int ch;
-    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:gs:N:G", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:gs:NG", longopts, NULL)) != -1) {
         switch (ch) {
             case 'b':
                 bufsize = atoi(optarg);
@@ -190,6 +191,10 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->accepts_no_auth = true;
         args->type = ACCEPTS_NO_AUTH;
     } else if (add_user) {
+        if (strcmp(add_user, ANONYMOUS_USER) == 0) {
+            fprintf(stderr, "El nombre de usuario 'anonymus' está reservado y no puede ser utilizado.\n");
+            exit(EXIT_FAILURE);
+        }
         args->stats = false;
         args->user.name = add_user;
         args->user.pass = add_pass;
