@@ -77,8 +77,6 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     strncpy(data->authInfo.username, username, MAX_USERNAME_LEN);
     strncpy(data->authInfo.password, password, MAX_PASSWORD_LEN);
 
-    log(INFO, "Received username: %s", data->authInfo.username);
-    log(INFO, "Received password: %s", data->authInfo.password);
 
     if (socksArgs == NULL) { log(ERROR, "socksArgs is NULL"); return CONFIG_DONE; }
 
@@ -123,8 +121,6 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
         return CONFIG_DONE;
     }
 
-    log(INFO, "Authenticated client %s as %s", data->authInfo.username,
-    data->role == ROLE_ADMIN ? "ADMIN" : "USER");
 
     if (data->role != ROLE_ADMIN) {
         selector_set_interest_key(key, OP_WRITE);
@@ -236,73 +232,89 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
-    if (data->target_ulen == 0) {
-        if (data->metrics_buf == NULL) {
-            const size_t bufsize = METRICS_BUF_CHUNK;
-            char *buffer = malloc(bufsize);
-            if (!buffer) return CONFIG_DONE;
+if (data->target_ulen == 0) {
+    if (data->metrics_buf == NULL) {
+        const size_t bufsize = METRICS_BUF_CHUNK * (1 + MAX_USERS);
+        char *buffer = malloc(bufsize);
+        if (!buffer) return CONFIG_DONE;
 
-            FILE *memfile = fmemopen(buffer, bufsize, "w");
-            if (!memfile) {
-                free(buffer);
-                return CONFIG_DONE;
-            }
-
-            print_global_metrics(memfile);
-            fflush(memfile);
-
-            const size_t written = ftell(memfile);
-            fclose(memfile);
-
-            // Header (3) + longitud (4) + cuerpo
-            const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
-            char *full_buf = malloc(total_len);
-            if (!full_buf) {
-                free(buffer);
-                return CONFIG_DONE;
-            }
-
-            full_buf[0] = CONFIG_VERSION;
-            full_buf[1] = RSV;
-            full_buf[2] = STATUS_OK;
-            const uint32_t body_len = htonl(written);
-            memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-            memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
-
+        FILE *memfile = fmemopen(buffer, bufsize, "w");
+        if (!memfile) {
             free(buffer);
-
-            data->metrics_buf = full_buf;
-            data->metrics_buf_len = total_len;
-            data->metrics_buf_offset = 0;
-        }
-
-        const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-        const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
-        if (sent < 0) {
-            free(data->metrics_buf);
-            data->metrics_buf = NULL;
-            data->metrics_buf_len = 0;
-            data->metrics_buf_offset = 0;
             return CONFIG_DONE;
         }
 
-        data->metrics_buf_offset += sent;
+        // Imprime métricas globales
+        print_global_metrics(memfile);
 
-        if (data->metrics_buf_offset >= data->metrics_buf_len) {
-            free(data->metrics_buf);
-            data->metrics_buf = NULL;
-            data->metrics_buf_len = 0;
-            data->metrics_buf_offset = 0;
+        // Imprime métricas de cada usuario
+        bool any_connection = false;
+        fprintf(memfile, "\n==== ALL USER CONNECTIONS ====\n");
+        for (size_t i = 0; i < MAX_USERS; i++) {
+            if (socksArgs->users[i].name != NULL) {
+                user_metrics *um = get_or_create_user_metrics(socksArgs->users[i].name);
+                if (um && um->connections_tree.root != NULL) {
+                    print_all_users_metrics_tabbed(um, socksArgs->users[i].name, memfile);
+                    any_connection = true;
+                }
+            }
+        }
+        if (!any_connection) {
+            fprintf(memfile, "\nNO USER CONNECTIONS YET\n\n");
+        }
+        fprintf(memfile, "\n==== END OF ALL USER CONNECTIONS ====\n\n");
+        fflush(memfile);
 
-            buffer_reset(data->clientBuffer);
+        const size_t written = ftell(memfile);
+        fclose(memfile);
+
+        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+        char *full_buf = malloc(total_len);
+        if (!full_buf) {
+            free(buffer);
             return CONFIG_DONE;
         }
 
-        return ADMIN_METRICS_SEND;
+        full_buf[0] = CONFIG_VERSION;
+        full_buf[1] = RSV;
+        full_buf[2] = STATUS_OK;
+        const uint32_t body_len = htonl(written);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+
+        free(buffer);
+
+        data->metrics_buf = full_buf;
+        data->metrics_buf_len = total_len;
+        data->metrics_buf_offset = 0;
     }
 
+    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
+    if (sent < 0) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+        return CONFIG_DONE;
+    }
+
+    data->metrics_buf_offset += sent;
+
+    if (data->metrics_buf_offset >= data->metrics_buf_len) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+
+        buffer_reset(data->clientBuffer);
+        return CONFIG_DONE;
+    }
+
+    return ADMIN_METRICS_SEND;
+}
+
     // Si hay un usuario específico, obtenemos sus métricas
-    log(INFO, "Fetching metrics for user: %s", data->target_username);
     user_metrics *um = get_or_create_user_metrics(data->target_username);
 
     if (!um) {
@@ -389,7 +401,6 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     }
         return CONFIG_DONE;
     }
-    log(INFO, "Handling admin initial request read on fd %d", fd);
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
     if (numBytesRcvd < 4) return CONFIG_DONE;
     const uint8_t version = buffer_read(data->clientBuffer);
@@ -405,7 +416,6 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
         log(ERROR, "Invalid reserved byte in admin request: %u", rsv);
         return CONFIG_DONE;
     }
-    log(INFO, "Admin command: %u, username length: %u", cmd, ulen);
 
     if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
 
@@ -416,7 +426,6 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     // Save info in clientData
     data->admin_cmd = cmd;
     strncpy(data->target_username, username, ulen);
-    log(INFO, "target_username: %s", data->target_username);
 
     selector_set_interest_key(key, OP_WRITE);
     return ADMIN_INITIAL_REQUEST_WRITE;
@@ -498,7 +507,6 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             return ADMIN_ADD_USER_READ;
         case ADMIN_CMD_REMOVE_USER: // remove-user
             selector_set_interest_key(key, OP_READ);
-            log(INFO, "handling remove user");
             return ADMIN_REMOVE_USER_READ;
         case ADMIN_CMD_MAKE_ADMIN: // make-admin
             selector_set_interest_key(key, OP_READ);
@@ -690,10 +698,7 @@ int initializeClientConfigData(clientConfigData *data) {
     stm->initial = READ_CREDENTIALS;
     stm->states = states_config;
     stm->max_state = ERROR_CONFIG_CLIENT;
-    log(INFO, "Initializing state machine");
     stm_init(stm);
-    log(INFO, " state machine INITIALIZED");
-
 
     buffer *buf = malloc(sizeof(buffer));
     if (buf == NULL) {
@@ -737,7 +742,6 @@ void config_write(struct selector_key *key) {
 }
 
 void handleServerConfigClose(struct selector_key *key) {
-    log(INFO, "Closing server socket %d", key->fd);
     for (size_t i = 0; i < MAX_USERS; i++) {
         if (socksArgs->users[i].is_added) {
             free(socksArgs->users[i].name);
@@ -811,7 +815,6 @@ int acceptTCPConfigConnection(const int servSock) {
         return -1;
     }
     printSocketAddress((struct sockaddr *)&clntAddr, addrBuffer);
-    log(INFO, "Handling client %s", addrBuffer);
     return clntSock;
 }
 

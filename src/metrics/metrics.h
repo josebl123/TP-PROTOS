@@ -58,6 +58,7 @@ void fill_ip_address_from_origin(ip_address *dest, struct originInfo *origin);
 void print_global_metrics(FILE * out);
 void print_global_metrics_tabbed(FILE *out);
 void add_new_login_error(void);
+void print_all_users_metrics_tabbed(user_metrics *um, const char *username, FILE *out);
 
 
 #endif // METRICS_H

@@ -146,6 +146,11 @@ void print_user_metrics_tabbed(user_metrics *um, const char *username, FILE *out
     }
     print_rbt_inorder(out, username, um->connections_tree.root);
 }
+void print_all_users_metrics_tabbed(user_metrics *um, const char *username, FILE *out) {
+    if (!um || !username || !out) return;
+    print_rbt_inorder(out, username, um->connections_tree.root);
+}
+
 
 void user_connection_init(user_connection *conn) {
     if (!conn) return;
@@ -171,8 +176,9 @@ void fill_ip_address_from_origin(ip_address *dest, struct originInfo *origin) {
 
 void print_global_metrics(FILE *out) {
     if (!out) return;
+    fprintf(out, "\n==== GLOBAL METRICS ====\n");
     fprintf(out,
-        "\ntotal_connections: %lu\n"
+        "total_connections: %lu\n"
         "current_connections: %lu\n"
         "bytes_client_to_remote: %lu\n"
         "bytes_remote_to_client: %lu\n"
@@ -185,7 +191,6 @@ void print_global_metrics(FILE *out) {
         "server_errors: %lu\n"
         "auth_errors: %lu\n"
         "unsupported_input: %lu\n\n",
-
         metrics.total_connections,
         metrics.current_connections,
         metrics.bytes_client_to_remote,
