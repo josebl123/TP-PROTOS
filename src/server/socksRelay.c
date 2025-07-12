@@ -54,7 +54,6 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            log(INFO, "send() would block on remote socket %d, retrying later", clntFd);
             update_selector_interests(key, data->client, clntFd, key->fd); // Actualizar los intereses del selector
             return RELAY_REMOTE; // Mantener el estado de escritura de remoto relay
         }
@@ -80,17 +79,13 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
     clientData *data = key->data;
     int remoteSocket = data->remoteSocket; // Socket del cliente
 
-    log(INFO, "Handling immediate write to client socket %d in relay state", remoteSocket);
-
     // Enviar mensaje al cliente
     size_t readLimit;
     const uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
     const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, MSG_DONTWAIT);
-    log(INFO, "Attempting to send %zu bytes to remote socket %d", readLimit, remoteSocket);
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            log(INFO, "send() would block on remote socket %d, retrying later", remoteSocket);
             update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
             return RELAY_CLIENT; // Mantener el estado de escritura de cliente relay
         }
@@ -102,7 +97,6 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
         return DONE; // TODO definir codigos de error
     }
-    log(INFO, "Sent %zd bytes to remote socket %d", numBytesSent, remoteSocket);
     buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     metrics_add_bytes_client_to_remote(numBytesSent);
     data->current_user_conn.bytes_sent += numBytesSent;
@@ -124,7 +118,6 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
     if (numBytesRcvd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo recibir por ahora, volver a intentar más tarde
-            log(INFO, "recv() would block on remote socket %d, retrying later", remoteSocket);
             update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
             return RELAY_CLIENT; // Mantener el estado de lectura de cliente relay
         }
@@ -158,7 +151,6 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
     if (numBytesRcvd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo recibir por ahora, volver a intentar más tarde
-            log(INFO, "recv() would block on client socket %d, retrying later", clntSocket);
             update_selector_interests(key, data->client, clntSocket, key->fd); // Actualizar los intereses del selector
             return RELAY_REMOTE; // Mantener el estado de lectura de remoto relay
         }
@@ -181,8 +173,6 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
 
 
 unsigned handleRelayClientRead(struct selector_key *key){
-    log(INFO, "Handling client read in relay state");
-
     int clntSocket = key->fd; // Socket del cliente
      clientData *data = key->data;
 
@@ -235,7 +225,6 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     return handleRelayClientReadFromRemoteAttempt(key); // Cambiar al estado de lectura de cliente relay
   }
 unsigned handleRelayRemoteRead(struct selector_key *key) {
-    log(INFO, "Handling remote read in relay state");
     const int remoteSocket = key->fd; // Socket remoto
     const remoteData *data = key->data;
     // Recibir mensaje del socket remoto
