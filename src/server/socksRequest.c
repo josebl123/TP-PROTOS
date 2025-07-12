@@ -185,9 +185,8 @@ unsigned handleRequestWrite(struct selector_key *key) {
 unsigned handleDomainRequestRead(struct selector_key *key) {
     clientData *data = key->data;
 
-    const ssize_t domainLength = buffer_read(data->clientBuffer); // Longitud del nombre de dominio
-    if (domainLength < 1 || domainLength > MAX_DOMAIN_LENGTH) { // Validar longitud del dominio
-        log(ERROR, "Invalid domain name length: %zd", domainLength);
+    const uint8_t domainLength = buffer_read(data->clientBuffer); // Longitud del nombre de dominio
+    if (domainLength < 1 ) { // Validar longitud del dominio
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         data->addressResolved = 1; // Indicate that the address is resolved (failed)
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
@@ -196,10 +195,10 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
         return REQUEST_WRITE;
     }
 
-    ssize_t readLimit;
-    uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
+    size_t readLimit;
+    buffer_read_ptr(data->clientBuffer, &readLimit);
 
-    if (readLimit < domainLength + PORT_SIZE) { // domainLength + 2 bytes for port
+    if (readLimit < (size_t)domainLength + PORT_SIZE) { // domainLength + 2 bytes for port
         log(ERROR, "Incomplete domain name received");
         return REQUEST_READ;
     }
@@ -344,6 +343,10 @@ unsigned handleRequestRead(struct selector_key *key) {
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     if (numBytesRcvd < 0) {
+        if ( errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", clntSocket);
+            return RELAY_DONE; // El cliente cerró la conexión
+        }
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         metrics_add_receive_error();
         return ERROR_CLIENT;

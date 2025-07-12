@@ -15,7 +15,7 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key);
 unsigned handleAdminRemoveUserWrite(struct selector_key * key);
 unsigned handleAdminMakeAdminRead(struct selector_key * key);
 unsigned handleAdminMakeAdminWrite(struct selector_key * key);
-unsigned handleAdminMetricsWrite(struct selector_key * key);
+unsigned handleAdminMetricsWrite( struct selector_key * key);
 unsigned handleUserMetricsWrite(struct selector_key * key);
 
 

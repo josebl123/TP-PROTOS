@@ -19,15 +19,62 @@
 
 #define MAX_ADDR_BUFFER 128
 #define MIN_CONFIG_READ_LENGTH 3 // Minimum bytes to read for config (version, rsv, userlen)
-#define METRICS_WRITE_HEADER_SIZE 3 // Size of the metrics header (version, rsv, status, role)
-#define METRICS_WRITE_PAYLOAD_LENGTH 4
 
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 
+unsigned handleAuthConfigWrite(struct selector_key *key) {
+    const int clntSocket = key->fd;
+    const clientConfigData *data = key->data;
+    size_t availableBytes;
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
+    const ssize_t sent = send(clntSocket,ptr, availableBytes, 0);
+    if (sent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No se pudo enviar por ahora, volver a intentar más tarde
+            return AUTH_DONE;
+        }
+        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+        return CONFIG_DONE;
+    }
+    if (sent == 0) {
+        log(INFO, "Client socket %d closed connection", clntSocket);
+        return CONFIG_DONE;
+    }
+    buffer_read_adv(data->clientBuffer, sent); // Avanzar el puntero de lectura del buffer
+    if (sent < (ssize_t)availableBytes) {
+        log(INFO, "Partial send on client socket %d: sent %zd bytes out of %zu", clntSocket, sent, availableBytes);
+        return AUTH_DONE; // Partial send, wait for next write
+    }
+
+    if (data->role == ROLE_INVALID) {
+        log(ERROR, "Authentication failed for client socket %d", clntSocket);
+        return CONFIG_DONE;
+    }
+
+    if (data->role != ROLE_ADMIN) {
+        selector_set_interest_key(key, OP_WRITE);
+        return USER_METRICS;
+    }
+    selector_set_interest_key(key, OP_READ);
+    return ADMIN_INITIAL_REQUEST_READ;
+}
+
+unsigned attemptAuthConfigWrite (struct selector_key *key) {
+    const clientConfigData *data = key->data;
+
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, data->role != ROLE_INVALID? STATUS_OK : STATUS_FAIL);
+    if (data->role != ROLE_INVALID) {
+        buffer_write(data->clientBuffer, data->role);
+    }
+    return handleAuthConfigWrite(key);
+}
 
 unsigned handleAuthConfigRead(struct selector_key *key) {
-    int clntSocket = key->fd;
+    const int clntSocket = key->fd;
     clientConfigData *data = key->data;
     size_t writeLimit;
 
@@ -94,130 +141,11 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     }
 
     selector_set_interest_key(key, OP_WRITE);
-    return AUTH_DONE;
+
+    return attemptAuthConfigWrite(key);
 }
 
-unsigned handleAuthConfigWrite(struct selector_key *key) {
-    const int clntSocket = key->fd;
-    clientConfigData *data = key->data;
 
-    uint8_t response[4] = { CONFIG_VERSION, RSV, STATUS_FAIL, ROLE_USER };
-    if (data->role == ROLE_ADMIN) {
-        response[2] = STATUS_OK;
-        response[3] = ROLE_ADMIN;
-    } else if (data->role == ROLE_USER) {
-        response[2] = STATUS_OK;
-        response[3] = ROLE_USER;
-    }
-
-    const ssize_t sent = send(clntSocket, response, sizeof(response), 0);
-    if (sent < 0) {
-        log(ERROR, "send() failed on client socket %d", clntSocket);
-        return CONFIG_DONE;
-    }
-
-    if (data->role == ROLE_INVALID) {
-        log(ERROR, "Authentication failed for client socket %d", clntSocket);
-        return CONFIG_DONE;
-    }
-
-
-    if (data->role != ROLE_ADMIN) {
-        selector_set_interest_key(key, OP_WRITE);
-        return USER_METRICS;
-    }
-    selector_set_interest_key(key, OP_READ);
-    return ADMIN_INITIAL_REQUEST_READ;
-}
-
-unsigned handleUserMetricsWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    const int clntSocket = key->fd;
-
-    if (data->metrics_buf == NULL) {
-        const size_t bufsize = METRICS_BUF_CHUNK;
-        char *buffer = malloc(bufsize);
-        if (!buffer) {
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        FILE *memfile = fmemopen(buffer, bufsize, "w");
-        if (!memfile) {
-            free(buffer);
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        user_metrics *um = get_or_create_user_metrics(data->authInfo.username);
-        if (!um) {
-            log(ERROR, "User metrics not found for %s", data->authInfo.username);
-            fclose(memfile);
-            free(buffer);
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        print_user_metrics_tabbed(um, data->authInfo.username, memfile);
-        fflush(memfile);
-
-        const size_t written = ftell(memfile);
-        fclose(memfile);
-
-        // Header (3) + longitud (4) + cuerpo
-        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
-        char *full_buf = malloc(total_len);
-        if (!full_buf) {
-            free(buffer);
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        // Header
-        full_buf[0] = CONFIG_VERSION;
-        full_buf[1] = RSV;
-        full_buf[2] = STATUS_OK;
-
-        // Longitud en network byte order
-        const uint32_t body_len = htonl(written);
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-
-        // Cuerpo
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
-
-        free(buffer);
-
-        data->metrics_buf = full_buf;
-        data->metrics_buf_len = total_len;
-        data->metrics_buf_offset = 0;
-    }
-
-    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
-    if (sent < 0) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-        return CONFIG_DONE;
-    }
-
-    data->metrics_buf_offset += sent;
-
-    if (data->metrics_buf_offset >= data->metrics_buf_len) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-        return CONFIG_DONE;
-    }
-
-    return USER_METRICS;
-}
 
 void handleConfigDone(const unsigned state, struct selector_key *key) {
     if (state == ERROR_CONFIG_CLIENT) {
@@ -228,169 +156,58 @@ void handleConfigDone(const unsigned state, struct selector_key *key) {
     selector_unregister_fd(key->s, key->fd);
 }
 
-unsigned handleAdminMetricsWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
+unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
     const int clntSocket = key->fd;
-
-if (data->target_ulen == 0) {
-    if (data->metrics_buf == NULL) {
-        const size_t bufsize = METRICS_BUF_CHUNK * (1 + MAX_USERS);
-        char *buffer = malloc(bufsize);
-        if (!buffer) return CONFIG_DONE;
-
-        FILE *memfile = fmemopen(buffer, bufsize, "w");
-        if (!memfile) {
-            free(buffer);
-            return CONFIG_DONE;
-        }
-
-        // Imprime métricas globales
-        print_global_metrics(memfile);
-
-        // Imprime métricas de cada usuario
-        bool any_connection = false;
-        fprintf(memfile, "\n==== ALL USER CONNECTIONS ====\n");
-        for (size_t i = 0; i < MAX_USERS; i++) {
-            if (socksArgs->users[i].name != NULL) {
-                user_metrics *um = get_or_create_user_metrics(socksArgs->users[i].name);
-                if (um && um->connections_tree.root != NULL) {
-                    print_all_users_metrics_tabbed(um, socksArgs->users[i].name, memfile);
-                    any_connection = true;
-                }
-            }
-        }
-        user_metrics *um = get_or_create_user_metrics(ANONYMOUS_USER);
-        if (um && um->connections_tree.root != NULL) {
-            print_all_users_metrics_tabbed(um, ANONYMOUS_USER, memfile);
-            any_connection = true;
-        }
-        if (!any_connection) {
-            fprintf(memfile, "\nNO USER CONNECTIONS YET\n\n");
-        }
-        fprintf(memfile, "\n==== END OF ALL USER CONNECTIONS ====\n\n");
-        fflush(memfile);
-
-        const size_t written = ftell(memfile);
-        fclose(memfile);
-
-        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
-        char *full_buf = malloc(total_len);
-        if (!full_buf) {
-            free(buffer);
-            return CONFIG_DONE;
-        }
-
-        full_buf[0] = CONFIG_VERSION;
-        full_buf[1] = RSV;
-        full_buf[2] = STATUS_OK;
-        const uint32_t body_len = htonl(written);
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
-
-        free(buffer);
-
-        data->metrics_buf = full_buf;
-        data->metrics_buf_len = total_len;
-        data->metrics_buf_offset = 0;
-    }
-
-    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
+    const clientConfigData *data = key->data;
+    size_t availableBytes;
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
+    const ssize_t sent = send(clntSocket,ptr, availableBytes, 0);
     if (sent < 0) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No se pudo enviar por ahora, volver a intentar más tarde
+            return ADMIN_INITIAL_REQUEST_WRITE;
+        }
+        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         return CONFIG_DONE;
     }
-
-    data->metrics_buf_offset += sent;
-
-    if (data->metrics_buf_offset >= data->metrics_buf_len) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-
-        buffer_reset(data->clientBuffer);
+    if (sent == 0) {
+        log(INFO, "Client socket %d closed connection", clntSocket);
         return CONFIG_DONE;
     }
+    buffer_read_adv(data->clientBuffer, sent); // Avanzar el puntero de lectura del buffer
+    if (sent < (ssize_t)availableBytes) {
+        log(INFO, "Partial send on client socket %d: sent %zd bytes out of %zu", clntSocket, sent, availableBytes);
+        return ADMIN_INITIAL_REQUEST_WRITE; // Partial send, wait for next write
+    }
 
-    return ADMIN_METRICS_SEND;
+
+    if (data->admin_cmd == GLOBAL_STATS) { // STATS
+        selector_set_interest_key(key, OP_WRITE);
+        return ADMIN_METRICS_SEND;
+    }
+    if (data->admin_cmd == CONFIG) { // CONFIG
+        selector_set_interest_key(key, OP_READ);
+        return ADMIN_COMMAND_READ;
+    }
+    return CONFIG_DONE;
 }
 
-    // Si hay un usuario específico, obtenemos sus métricas
-    user_metrics *um = get_or_create_user_metrics(data->target_username);
 
-    if (!um) {
-        log(ERROR, "User metrics not found for %s", data->target_username);
-        return CONFIG_DONE;
+unsigned adminAttemptInitialRequestWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    if (data->admin_cmd == GLOBAL_STATS) {
+        buffer_write(data->clientBuffer, GLOBAL_STATS);
+    } else if (data->admin_cmd == CONFIG) {
+        buffer_write(data->clientBuffer, CONFIG);
+    } else {
+        buffer_write(data->clientBuffer, 0xFF); // status fail
     }
-    if (data->metrics_buf == NULL) {
-        const size_t bufsize = METRICS_BUF_CHUNK;
-        char *buffer = malloc(bufsize);
-        if (!buffer) return CONFIG_DONE;
 
-        FILE *memfile = fmemopen(buffer, bufsize, "w");
-        if (!memfile) {
-            free(buffer);
-            return CONFIG_DONE;
-        }
-
-        print_user_metrics_tabbed(um, data->target_username, memfile);
-        fflush(memfile);
-
-        const size_t written = ftell(memfile);
-        fclose(memfile);
-
-        // Header (3) + longitud (4) + cuerpo
-        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
-        char *full_buf = malloc(total_len);
-        if (!full_buf) {
-            free(buffer);
-            return CONFIG_DONE;
-        }
-
-        // Header
-        full_buf[0] = CONFIG_VERSION;
-        full_buf[1] = RSV; // RSV
-        full_buf[2] = STATUS_OK; // STATUS_OK
-
-        // Longitud en network byte order
-        const uint32_t body_len = htonl(written);
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-
-        // Cuerpo
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH , buffer, written);
-
-        free(buffer);
-
-        data->metrics_buf = full_buf;
-        data->metrics_buf_len = total_len;
-        data->metrics_buf_offset = 0;
-    }
-    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
-    if (sent < 0) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-        return CONFIG_DONE;
-    }
-    data->metrics_buf_offset += sent;
-    if (data->metrics_buf_offset >= data->metrics_buf_len) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-
-        buffer_reset(data->clientBuffer); // limpiar buffer para próxima lectura
-        return CONFIG_DONE;           // ← volvemos al menú
-    }
-    return ADMIN_METRICS_SEND; // Continuar enviando métricas
+    return handleAdminInitialRequestWrite(key);
 }
-
 
 unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     clientConfigData *data = key->data;
@@ -411,7 +228,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     const uint8_t version = buffer_read(data->clientBuffer);
     const uint8_t rsv = buffer_read(data->clientBuffer);
     const uint8_t cmd = buffer_read(data->clientBuffer); // 0=stats, 1=config
-    uint8_t ulen = buffer_read(data->clientBuffer);
+    const uint8_t ulen = buffer_read(data->clientBuffer);
 
     if (version != CONFIG_VERSION) {
         log(ERROR, "Unsupported MAEP version: %u", version);
@@ -433,31 +250,8 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     strncpy(data->target_username, username, ulen);
 
     selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_INITIAL_REQUEST_WRITE;
-}
 
-
-unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
-    const clientConfigData *data = key->data;
-    const int fd = key->fd;
-
-    uint8_t response[3] = {CONFIG_VERSION, RSV, STATUS_OK};
-
-    if (data->admin_cmd == GLOBAL_STATS) { // STATS
-        response[2] = GLOBAL_STATS;
-        send(fd, response, sizeof(response), 0);
-        selector_set_interest_key(key, OP_WRITE);
-        return ADMIN_METRICS_SEND;
-    }
-    if (data->admin_cmd == CONFIG) { // CONFIG
-        response[2] = CONFIG;
-        send(fd, response, sizeof(response), 0);
-        selector_set_interest_key(key, OP_READ);
-        return ADMIN_COMMAND_READ;
-    }
-    response[2] = 0xFF; //status fail pero con 0xff todo:esto lo tenemos definido asi?
-    send(fd, response, sizeof(response), 0);
-    return CONFIG_DONE;
+    return adminAttemptInitialRequestWrite(key);
 }
 
 unsigned handleAdminConfigRead(struct selector_key *key) {
@@ -522,88 +316,6 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             return CONFIG_DONE;
     }
 }
-
-
-unsigned handleAdminMenuRead(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    const int fd = key->fd;
-    size_t available;
-    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
-
-    ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
-            log(INFO, "Client socket %d closed connection", fd);
-            return CONFIG_DONE;
-        }
-        log(ERROR, "recv() failed on client socket %d", fd);
-        return ERROR_CONFIG_CLIENT;
-    }
-
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
-
-    if (numBytesRcvd < 4) return ADMIN_MENU_READ;
-
-    const uint8_t version = buffer_read(data->clientBuffer);
-    if (version != CONFIG_VERSION) {
-        log(ERROR, "Unsupported MAEP version: %u", version);
-        return CONFIG_DONE;
-    }
-    uint8_t rsv = buffer_read(data->clientBuffer);
-    if (rsv != RSV) {
-        log(ERROR, "Invalid reserved byte in admin menu request: %u", rsv);
-        return CONFIG_DONE;
-    }
-    const uint8_t cmd = buffer_read(data->clientBuffer);
-    if ( cmd > 0x01) {
-        log(ERROR, "Invalid admin menu command code: %u", cmd);
-        return CONFIG_DONE;
-    }
-    uint8_t ulen = buffer_read(data->clientBuffer);
-    if (ulen > MAX_USERNAME_LEN) {
-        log(ERROR, "Username length exceeds maximum: %u", ulen);
-        return CONFIG_DONE;
-    }
-
-
-    if (numBytesRcvd < 4 + ulen) return ADMIN_MENU_READ;
-
-    char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username, ptr + 4, ulen);
-    data->target_ulen = ulen;
-
-    // Guardar datos en estructura
-    data->admin_cmd = cmd;
-    strncpy(data->target_username, username, sizeof(data->target_username));
-
-    selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_MENU_WRITE;
-}
-
-unsigned handleAdminMenuWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    int fd = key->fd;
-
-    uint8_t response[3] = {CONFIG_VERSION, RSV, STATUS_OK};
-    if (data->admin_cmd == 0) { // STATS
-        response[2] = GLOBAL_STATS;
-        send(fd, response, sizeof(response), 0);
-        selector_set_interest_key(key, OP_WRITE);
-        return ADMIN_METRICS_SEND;
-    }
-    if (data->admin_cmd == 1) { // CONFIG
-        response[2] = CONFIG;
-        send(fd, response, sizeof(response), 0);
-        selector_set_interest_key(key, OP_READ);
-        return ADMIN_COMMAND_READ;
-    }
-    response[2] = 0xFF; // Error
-    send(fd, response, sizeof(response), 0);
-    return CONFIG_DONE;
-}
-
-
-
 
 
 static const struct state_definition states_config[] = {
@@ -675,14 +387,6 @@ static const struct state_definition states_config[] = {
         .state = ADMIN_MAKE_ADMIN_READ,
         .on_read_ready = handleAdminMakeAdminRead,
     },
-    [ADMIN_MENU_READ] = {
-        .state = ADMIN_MENU_READ,
-        .on_read_ready = handleAdminMenuRead,
-    },
-    [ADMIN_MENU_WRITE] = {
-        .state = ADMIN_MENU_WRITE,
-        .on_write_ready = handleAdminMenuWrite,
-    },
     [CONFIG_DONE] = {
         .state = CONFIG_DONE,
         .on_arrival = handleConfigDone,
@@ -737,12 +441,12 @@ static const fd_handler client_handler = {
 };
 
 void config_read(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     stm_handler_read(data->stm, key); //usar enum para detectar errores
 }
 
 void config_write(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     stm_handler_write(data->stm, key);
 }
 

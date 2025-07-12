@@ -121,6 +121,9 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
             update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
             return RELAY_CLIENT; // Mantener el estado de lectura de cliente relay
         }
+        if ( errno == ECONNRESET) {
+            return RELAY_DONE; // El cliente cerró la conexión
+        }
         log(ERROR, "recv() failed on remote socket %d: %s", remoteSocket, strerror(errno));
         metrics_add_receive_error();
         return ERROR_CLIENT;
@@ -155,6 +158,10 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
             return RELAY_REMOTE; // Mantener el estado de lectura de remoto relay
         }
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+        if ( errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", clntSocket);
+            return RELAY_DONE; // El cliente cerró la conexión
+        }
         metrics_add_receive_error();
         return RELAY_ERROR;
     }
@@ -182,6 +189,10 @@ unsigned handleRelayClientRead(struct selector_key *key){
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+        if ( errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", clntSocket);
+            return RELAY_DONE; // El cliente cerró la conexión
+        }
         metrics_add_receive_error();
         return ERROR_CLIENT;
     }
@@ -230,7 +241,12 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
     uint8_t *writePtr = buffer_write_ptr(data->buffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(remoteSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
+        if ( errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", remoteSocket);
+            return RELAY_DONE; // El cliente cerró la conexión
+        }
         log(ERROR, "recv() failed on remote socket %d", remoteSocket);
+
         metrics_add_receive_error();
         return RELAY_ERROR;
     }

@@ -19,6 +19,7 @@
 #define STATUS_OK 0x00
 #define STATUS_FAIL 0x01
 
+
 typedef enum {
     READ_CREDENTIALS,         // Recibir: VERSION RSV ULEN USER PLEN PASS
     AUTH_DONE,                // Enviar resultado de autenticación
@@ -32,8 +33,6 @@ typedef enum {
     ADMIN_METRICS_SEND,          // Enviar métricas globales o de usuario
 
     ADMIN_COMMAND_READ,          // Esperar comandos de configuración
-    ADMIN_MENU_READ,           // Nuevo estado: espera nuevo comando del admin
-    ADMIN_MENU_WRITE,          // Enviar menú de comandos al admin
 
 
     ADMIN_BUFFER_SIZE_CHANGE,    // Cambiar tamaño de buffer

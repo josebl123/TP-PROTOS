@@ -13,6 +13,8 @@
 #include <stdbool.h>
 #include "server.h"
 #include "serverConfigTypes.h"
+#define METRICS_WRITE_HEADER_SIZE 3 // Size of the metrics header (version, rsv, status, role)
+#define METRICS_WRITE_PAYLOAD_LENGTH 4
 
 int makeAdmin(char *username, uint8_t ulen) {
     if (socksArgs == NULL) {
@@ -387,4 +389,236 @@ unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
     }
 
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
+}
+
+unsigned handleUserMetricsWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    const int clntSocket = key->fd;
+
+    if (data->metrics_buf == NULL) {
+        const size_t bufsize = METRICS_BUF_CHUNK;
+        char *buffer = malloc(bufsize);
+        if (!buffer) {
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+            send(clntSocket, response, sizeof(response), 0);
+            return CONFIG_DONE;
+        }
+
+        FILE *memfile = fmemopen(buffer, bufsize, "w");
+        if (!memfile) {
+            free(buffer);
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+            send(clntSocket, response, sizeof(response), 0);
+            return CONFIG_DONE;
+        }
+
+        user_metrics *um = get_or_create_user_metrics(data->authInfo.username);
+        if (!um) {
+            log(ERROR, "User metrics not found for %s", data->authInfo.username);
+            fclose(memfile);
+            free(buffer);
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+            send(clntSocket, response, sizeof(response), 0);
+            return CONFIG_DONE;
+        }
+
+        print_user_metrics_tabbed(um, data->authInfo.username, memfile);
+        fflush(memfile);
+
+        const size_t written = ftell(memfile);
+        fclose(memfile);
+
+        // Header (3) + longitud (4) + cuerpo
+        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+        char *full_buf = malloc(total_len);
+        if (!full_buf) {
+            free(buffer);
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+            send(clntSocket, response, sizeof(response), 0);
+            return CONFIG_DONE;
+        }
+
+        // Header
+        full_buf[0] = CONFIG_VERSION;
+        full_buf[1] = RSV;
+        full_buf[2] = STATUS_OK;
+
+        // Longitud en network byte order
+        const uint32_t body_len = htonl(written);
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
+
+        // Cuerpo
+        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+
+        free(buffer);
+
+        data->metrics_buf = full_buf;
+        data->metrics_buf_len = total_len;
+        data->metrics_buf_offset = 0;
+    }
+
+    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
+    if (sent < 0) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+        return CONFIG_DONE;
+    }
+
+    data->metrics_buf_offset += sent;
+
+    if (data->metrics_buf_offset >= data->metrics_buf_len) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+        return CONFIG_DONE;
+    }
+
+    return USER_METRICS;
+}
+
+unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, unsigned next_state) {
+    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
+    if (sent < 0) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+        return CONFIG_DONE;
+    }
+    data->metrics_buf_offset += sent;
+    if (data->metrics_buf_offset >= data->metrics_buf_len) {
+        free(data->metrics_buf);
+        data->metrics_buf = NULL;
+        data->metrics_buf_len = 0;
+        data->metrics_buf_offset = 0;
+        buffer_reset(data->clientBuffer);
+        return CONFIG_DONE;
+    }
+    return next_state;
+}
+
+void prepare_global_metrics_buffer(clientConfigData *data) {
+    const size_t bufsize = METRICS_BUF_CHUNK * (1 + MAX_USERS);
+    char *buffer = malloc(bufsize);
+    if (!buffer) return;
+
+    FILE *memfile = fmemopen(buffer, bufsize, "w");
+    if (!memfile) {
+        free(buffer);
+        return;
+    }
+
+    print_global_metrics(memfile);
+
+    bool any_connection = false;
+    fprintf(memfile, "\n==== ALL USER CONNECTIONS ====\n");
+    for (size_t i = 0; i < MAX_USERS; i++) {
+        if (socksArgs->users[i].name != NULL) {
+            user_metrics *um = get_or_create_user_metrics(socksArgs->users[i].name);
+            if (um && um->connections_tree.root != NULL) {
+                print_all_users_metrics_tabbed(um, socksArgs->users[i].name, memfile);
+                any_connection = true;
+            }
+        }
+    }
+    user_metrics *um = get_or_create_user_metrics(ANONYMOUS_USER);
+    if (um && um->connections_tree.root != NULL) {
+        print_all_users_metrics_tabbed(um, ANONYMOUS_USER, memfile);
+        any_connection = true;
+    }
+    if (!any_connection) {
+        fprintf(memfile, "\nNO USER CONNECTIONS YET\n\n");
+    }
+    fprintf(memfile, "\n==== END OF ALL USER CONNECTIONS ====\n\n");
+    fflush(memfile);
+
+    const size_t written = ftell(memfile);
+    fclose(memfile);
+
+    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+    char *full_buf = malloc(total_len);
+    if (!full_buf) {
+        free(buffer);
+        return;
+    }
+
+    full_buf[0] = CONFIG_VERSION;
+    full_buf[1] = RSV;
+    full_buf[2] = STATUS_OK;
+    const uint32_t body_len = htonl(written);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+
+    free(buffer);
+
+    data->metrics_buf = full_buf;
+    data->metrics_buf_len = total_len;
+    data->metrics_buf_offset = 0;
+}
+
+void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
+    const size_t bufsize = METRICS_BUF_CHUNK;
+    char *buffer = malloc(bufsize);
+    if (!buffer) return;
+
+    FILE *memfile = fmemopen(buffer, bufsize, "w");
+    if (!memfile) {
+        free(buffer);
+        return;
+    }
+
+    print_user_metrics_tabbed(um, data->target_username, memfile);
+    fflush(memfile);
+
+    const size_t written = ftell(memfile);
+    fclose(memfile);
+
+    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+    char *full_buf = malloc(total_len);
+    if (!full_buf) {
+        free(buffer);
+        return;
+    }
+
+    full_buf[0] = CONFIG_VERSION;
+    full_buf[1] = RSV;
+    full_buf[2] = STATUS_OK;
+    const uint32_t body_len = htonl(written);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+
+    free(buffer);
+
+    data->metrics_buf = full_buf;
+    data->metrics_buf_len = total_len;
+    data->metrics_buf_offset = 0;
+}
+
+unsigned handleAdminMetricsWrite(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    const int clntSocket = key->fd;
+
+    if (data->target_ulen == 0) {
+        if (data->metrics_buf == NULL) {
+            prepare_global_metrics_buffer(data);
+            if (data->metrics_buf == NULL) return CONFIG_DONE;
+        }
+        return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
+    }
+
+    user_metrics *um = get_or_create_user_metrics(data->target_username);
+    if (!um) {
+        log(ERROR, "User metrics not found for %s", data->target_username);
+        return CONFIG_DONE;
+    }
+    if (data->metrics_buf == NULL) {
+        prepare_user_metrics_buffer(data, um);
+        if (data->metrics_buf == NULL) return CONFIG_DONE;
+    }
+    return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
 }
