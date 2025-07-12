@@ -48,9 +48,9 @@ int main(const int argc, char *argv[])
 {
     socksArgs = malloc(sizeof(struct socks5args));
     parse_args(argc, argv, socksArgs); // Parse command line arguments
-    // int max_clients = INITIAL_MAX_CLIENTS;
+
     metrics_init();
-    init_user_metrics_table();  // <- Agregá esta línea
+    init_user_metrics_table();
     struct sigaction sa;
     sa.sa_handler = cleanup;
     sa.sa_flags = 0;

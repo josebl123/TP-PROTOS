@@ -109,7 +109,7 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
 int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
     // Este estado se usa cuando se quiere leer inmediatamente del remoto sin esperar a que haya datos del cliente
     clientData *data = key->data;
-    int remoteSocket = data->remoteSocket; // Socket del remoto
+    const int remoteSocket = data->remoteSocket; // Socket del remoto
 
     // Recibir mensaje del remoto
     size_t writeLimit;

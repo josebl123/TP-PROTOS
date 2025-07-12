@@ -1,9 +1,8 @@
 #ifndef UTIL_H_
 #define UTIL_H_
 
-#include <stdbool.h>
-#include <stdio.h>
 #include <sys/socket.h>
+#include <netdb.h>
 
 
 int printSocketAddress(const struct sockaddr *address, char * addrBuffer);
