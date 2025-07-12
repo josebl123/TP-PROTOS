@@ -115,7 +115,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
         response[3] = ROLE_USER;
     }
 
-    const ssize_t sent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+    const ssize_t sent = send(clntSocket, response, sizeof(response), 0);
     if (sent < 0) {
         log(ERROR, "send() failed on client socket %d", clntSocket);
         return CONFIG_DONE;
@@ -146,7 +146,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         char *buffer = malloc(bufsize);
         if (!buffer) {
             uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+            send(clntSocket, response, sizeof(response), 0);
             return CONFIG_DONE;
         }
 
@@ -154,7 +154,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         if (!memfile) {
             free(buffer);
             uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+            send(clntSocket, response, sizeof(response), 0);
             return CONFIG_DONE;
         }
 
@@ -164,7 +164,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
             fclose(memfile);
             free(buffer);
             uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+            send(clntSocket, response, sizeof(response), 0);
             return CONFIG_DONE;
         }
 
@@ -180,7 +180,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
         if (!full_buf) {
             free(buffer);
             uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+            send(clntSocket, response, sizeof(response), 0);
             return CONFIG_DONE;
         }
 
@@ -204,7 +204,7 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
     }
 
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
     if (sent < 0) {
         free(data->metrics_buf);
         data->metrics_buf = NULL;
@@ -280,7 +280,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         }
 
         const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-        const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+        const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
         if (sent < 0) {
             free(data->metrics_buf);
             data->metrics_buf = NULL;
@@ -356,7 +356,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         data->metrics_buf_offset = 0;
     }
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, MSG_DONTWAIT);
+    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
     if (sent < 0) {
         free(data->metrics_buf);
         data->metrics_buf = NULL;
@@ -383,7 +383,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     const int fd = key->fd;
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, MSG_DONTWAIT);
+    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", fd);
@@ -434,18 +434,18 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
 
     if (data->admin_cmd == GLOBAL_STATS) { // STATS
         response[2] = GLOBAL_STATS;
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
         selector_set_interest_key(key, OP_WRITE);
         return ADMIN_METRICS_SEND;
     }
     if (data->admin_cmd == CONFIG) { // CONFIG
         response[2] = CONFIG;
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
         selector_set_interest_key(key, OP_READ);
         return ADMIN_COMMAND_READ;
     }
     response[2] = 0xFF; //status fail pero con 0xff
-    send(fd, response, sizeof(response), MSG_DONTWAIT);
+    send(fd, response, sizeof(response), 0);
     return CONFIG_DONE;
 }
 
@@ -565,11 +565,11 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
 
     if (flag) {
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_CHANGE_BUFFER_SIZE, STATUS_OK };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     } else {
         log(ERROR, "Failed to change buffer size");
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_CHANGE_BUFFER_SIZE, STATUS_FAIL };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     }
 
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
@@ -579,7 +579,7 @@ unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
     socksArgs->serverAcceptsNoAuth = true;
 
     uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ACCEPTS_NO_AUTH, STATUS_OK };
-    send(key->fd, response, sizeof(response), MSG_DONTWAIT);
+    send(key->fd, response, sizeof(response), 0);
 
     return CONFIG_DONE;
 }
@@ -588,7 +588,7 @@ unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
     socksArgs->serverAcceptsNoAuth = false;
 
     uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REJECTS_NO_AUTH, STATUS_OK };
-    send(key->fd, response, sizeof(response), MSG_DONTWAIT);
+    send(key->fd, response, sizeof(response), 0);
 
     return CONFIG_DONE;
 }
@@ -688,11 +688,11 @@ unsigned handleAdminAddUserWrite(struct selector_key *key) {
 
     if (flag) {
     const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_OK };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     } else {
         log(ERROR, "Failed to add user");
     const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_FAIL };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     }
 
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
@@ -794,11 +794,11 @@ unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
 
     if (flag) {
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_OK };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     } else {
         log(ERROR, "Failed to remove user");
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_FAIL };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     }
 
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
@@ -876,11 +876,11 @@ unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
 
     if (flag) {
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_OK };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     } else {
         log(ERROR, "Failed to make admin user");
         const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_FAIL };
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
     }
 
     return CONFIG_DONE; //TODO: lo hacemos persistnece?
@@ -949,18 +949,18 @@ unsigned handleAdminMenuWrite(struct selector_key *key) {
     uint8_t response[3] = {CONFIG_VERSION, RSV, STATUS_OK};
     if (data->admin_cmd == 0) { // STATS
         response[2] = GLOBAL_STATS;
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
         selector_set_interest_key(key, OP_WRITE);
         return ADMIN_METRICS_SEND;
     }
     if (data->admin_cmd == 1) { // CONFIG
         response[2] = CONFIG;
-        send(fd, response, sizeof(response), MSG_DONTWAIT);
+        send(fd, response, sizeof(response), 0);
         selector_set_interest_key(key, OP_READ);
         return ADMIN_COMMAND_READ;
     }
     response[2] = 0xFF; // Error
-    send(fd, response, sizeof(response), MSG_DONTWAIT);
+    send(fd, response, sizeof(response), 0);
     return CONFIG_DONE;
 }
 

@@ -50,7 +50,7 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
     // Enviar mensaje al remoto
     size_t readLimit;
     const uint8_t *readPtr = buffer_read_ptr(data->client->remoteBuffer, &readLimit);
-    const ssize_t numBytesSent = send(clntFd, readPtr, readLimit, MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(clntFd, readPtr, readLimit, 0);
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
@@ -82,7 +82,7 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
     // Enviar mensaje al cliente
     size_t readLimit;
     const uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
-    const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, 0);
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
@@ -205,7 +205,7 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     // Enviar mensaje al cliente
     size_t readLimit;
     const uint8_t *readPtr = buffer_read_ptr(data->remoteBuffer, &readLimit);
-    const ssize_t numBytesSent = send(clntSocket, readPtr, readLimit, MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(clntSocket, readPtr, readLimit, 0);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d", clntSocket);
         metrics_add_send_error();
@@ -254,7 +254,7 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     // Enviar mensaje al socket remoto
     size_t readLimit;
     const uint8_t *readPtr = buffer_read_ptr(data->client->clientBuffer, &readLimit); //FIXME: data->client puede ser NULL si el cliente cierra la conexión antes de que se envíe el mensaje
-    const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, 0);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
         metrics_add_send_error();

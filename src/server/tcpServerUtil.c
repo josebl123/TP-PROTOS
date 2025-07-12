@@ -84,15 +84,15 @@ void clientClose(const unsigned state, struct selector_key *key) {
     localtime_r(&data->current_user_conn.access_time, &tm_info);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
 
-    log(INFO, "Saving user connection IN CLIENT CLOSE: status=%d, bytes_sent=%lu, bytes_received=%lu, port_origin=%u, port_destination=%u, destination_name=%s, access_time=%s",
-        data->current_user_conn.status,
-        data->current_user_conn.bytes_sent,
-        data->current_user_conn.bytes_received,
-        data->current_user_conn.port_origin,
-        data->current_user_conn.port_destination,
-        data->current_user_conn.destination_name ? data->current_user_conn.destination_name : "NULL",
-        time_str
-    );
+//    log(INFO, "Saving user connection IN CLIENT CLOSE: status=%d, bytes_sent=%lu, bytes_received=%lu, port_origin=%u, port_destination=%u, destination_name=%s, access_time=%s",
+//        data->current_user_conn.status,
+//        data->current_user_conn.bytes_sent,
+//        data->current_user_conn.bytes_received,
+//        data->current_user_conn.port_origin,
+//        data->current_user_conn.port_destination,
+//        data->current_user_conn.destination_name ? data->current_user_conn.destination_name : "NULL",
+//        time_str
+//    );
     metrics_connection_closed();
 
     if (!data->isAnonymous) {
@@ -234,8 +234,6 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
         return -1; // TODO definir codigos de error
     }
 
-    log(INFO, "Initializing remote socket %d for client %d", remoteSocket, key->fd);
-
     rData->client_fd = key->fd; // Set the remote socket file descriptor
     rData->client = data; // Set the client data
     rData->buffer = remoteBuffer; // Set the buffer for the remote socket
@@ -255,8 +253,6 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
         return -1; // TODO definir codigos de error
     }
 
-    log(INFO, "Remote socket %d initialized and registered with selector for client %d", remoteSocket, key->fd);
-
     return 0;
 }
 
@@ -264,28 +260,22 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
 void setResponseStatus(clientData *data, int error) {
     switch (error) {
         case EACCES:
-        log(ERROR, "Connection not allowed for remote address: %s", strerror(errno));
             data->responseStatus = SOCKS5_CONNECTION_NOT_ALLOWED;
             break;
         case ENETUNREACH:
-        log(ERROR, "Network unreachable for remote address: %s", strerror(errno));
             data->responseStatus = SOCKS5_NETWORK_UNREACHABLE;
             break;
         case EHOSTDOWN:
         case EHOSTUNREACH:
-        log(ERROR, "Host unreachable or host down for remote address: %s", strerror(errno));
             data->responseStatus = SOCKS5_HOST_UNREACHABLE;
             break;
         case ECONNREFUSED:
-        log(ERROR, "Connection refused for remote address: %s", strerror(errno));
             data->responseStatus = SOCKS5_CONNECTION_REFUSED;
             break;
         case ETIMEDOUT:
-        log(ERROR, "Connection timed out for remote address: %s", strerror(errno));
             data->responseStatus = SOCKS5_TTL_EXPIRED;
             break;
         default:
-        log(ERROR, "Unhandled connect error: %s", strerror(errno));
             data->responseStatus = SOCKS5_GENERAL_FAILURE; // Default error code TODO is this right?
             break;
     }
@@ -294,8 +284,6 @@ void setResponseStatus(clientData *data, int error) {
 void getAddrInfoCallBack(union sigval sigval) {
     struct dnsReq *req = sigval.sival_ptr; // Get the request from the signal value
     clientData *data = req->clientData; // Get the client data from the request
-
-    log(INFO, "getAddrInfoCallBack called for request on fd %d", req->fd);
 
 
     if (gai_error(&req->request) != 0) {
@@ -315,7 +303,6 @@ void getAddrInfoCallBack(union sigval sigval) {
     data->addressResolved = 0; // Mark the address as not resolved (success)
     data->remoteAddrInfo = req->request.ar_result; // Store the result in client data
     data->pointerToFree = req->request.ar_result; // Store the pointer to free later
-    log(INFO, "getaddrinfo() succeeded for domain %s", req->request.ar_name);
 
     if (selector_notify_block(req->fdSelector, req->fd) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to notify selector for fd %d", req->fd);
@@ -404,8 +391,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         sigevent.sigev_notify_function = getAddrInfoCallBack;  // Set the callback function
         sigevent.sigev_value.sival_ptr = dnsRequest;  // Pass the DNS request to the callback
 
-        log(INFO, "Starting DNS resolution for domain %s:%s", destination->address.domainName, portStr);
-
         // Call getaddrinfo_a asynchronously
         int gaiResult = getaddrinfo_a(GAI_NOWAIT, request, 1, &sigevent);
         if (gaiResult != 0) {
@@ -415,8 +400,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             metrics_add_dns_resolution_error();
             return -1;
         }
-
-        log(INFO, "DNS request for domain %s initiated", destination->address.domainName);
 
         // Set the interest to OP_NOOP to wait for the DNS resolution callback
         if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
@@ -443,7 +426,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             metrics_add_server_error(); // TODO: Is this a server error?
             return -1;
         }
-        log(INFO, "connect() in progress for remote address");
         if (remoteSocketInit(remoteSock, key) < 0 ) {
             log(ERROR, "Failed to initialize remote socket");
             return -1; // Initialize the remote socket
@@ -458,7 +440,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
     }
     // Print remote address of socket
     printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);
-    log(INFO, "Connecting to remote %s", addrBuffer);
     return remoteSock;
 }
 
@@ -476,7 +457,6 @@ int acceptTCPConnection(int servSock) {
 
     // clntSock is connected to a client!
     printSocketAddress((struct sockaddr *) &clntAddr, addrBuffer);
-    log(INFO, "Handling client %s", addrBuffer);
 
     return clntSock;
 }
@@ -553,10 +533,10 @@ void handleMasterRead(struct selector_key *key) {
         return;
     }
 
-    // loggeo (creo q ni necesario pero queda lindo)
+//    // loggeo (creo q ni necesario pero queda lindo)
     getpeername(new_socket, (struct sockaddr*)&address, &addrlen);
-    printf("New connection, socket fd is %d, ip is: %s, port: %d\n",
-           new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
+//    printf("New connection, socket fd is %d, ip is: %s, port: %d\n",
+//           new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
     // Prepare client data structure
     clientData *data = malloc(sizeof(clientData));
@@ -575,7 +555,7 @@ void handleMasterRead(struct selector_key *key) {
         data->origin.addressType = IPV4;
         data->origin.address.ipv4 = address.sin_addr.s_addr;
         data->origin.port = ntohs(address.sin_port);
-    } else {
+    } else { //TODO why not ipv6???
         log(ERROR, "Unsupported address family");
     }
 
@@ -588,13 +568,13 @@ void handleMasterRead(struct selector_key *key) {
         close(new_socket);
         return;
     }
-    printf("Client socket %d registered with selector\n", new_socket);
+//    printf("Client socket %d registered with selector\n", new_socket);
 }
 
 void socks5_relay_close(struct selector_key *key) {
     remoteData *rData = key->data;
     if (rData != NULL) {
-        log(INFO, "Closing remote socket %d for client %d", key->fd, rData->client_fd);
+//        log(INFO, "Closing remote socket %d for client %d", key->fd, rData->client_fd);
         if (rData->buffer != NULL) {
             free(rData->buffer->data); // Free the buffer data
             free(rData->buffer); // Free the buffer
@@ -623,7 +603,7 @@ void socks5_relay_write(struct selector_key *key) {
 void socks5_close(struct selector_key *key) {
     const clientData *data = key->data;
     if (data != NULL) {
-      	log(INFO, "Closing client socket %d", key->fd);
+//      	log(INFO, "Closing client socket %d", key->fd);
         stm_handler_close(data->stm, key);
     }
 }
@@ -640,6 +620,6 @@ void socks5_write(struct selector_key *key) {
 
 void socks5_block(struct selector_key *key) {
     clientData *data = key->data;
-    log(INFO, "Blocking client socket %d", key->fd);
+//    log(INFO, "Blocking client socket %d", key->fd);
     stm_handler_block(data->stm, key);
 }

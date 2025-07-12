@@ -71,7 +71,7 @@ unsigned handleHelloWrite(struct selector_key *key) {
 
     // Enviar respuesta de saludo al cliente
     const uint8_t response[2] = {SOCKS_VERSION, data->authMethod}; // Respuesta de saludo con autenticación no requerida
-    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), 0);
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) { //FIXME: recordar cuantos bytes se enviaron
             // No se pudo enviar por ahora, volver a intentar más tarde
@@ -165,7 +165,7 @@ unsigned handleAuthWrite(struct selector_key *key) {
             }
     }
 
-    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
+    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), 0);
 
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {

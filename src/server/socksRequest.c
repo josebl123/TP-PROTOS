@@ -34,7 +34,7 @@ unsigned connectWrite(struct selector_key * key) {
     remoteData *data = key->data;
 
     if (data->connectionReady) {
-        log(INFO, "Connection already ready for client socket %d", key->fd);
+//        log(INFO, "Connection already ready for client socket %d", key->fd);
     } else {
         int error =0;
         socklen_t len = sizeof(error);
@@ -66,7 +66,6 @@ unsigned connectWrite(struct selector_key * key) {
             data->client->addressResolved = 1; // Indicate that the address is resolved (failed)
             return RELAY_ERROR;
         }
-        log(INFO, "Connection established for client socket %d", key->fd);
         data->connectionReady = 1;
     }
 
@@ -100,7 +99,7 @@ unsigned connectWrite(struct selector_key * key) {
 }
 void sendFailureResponse(int clntSocket, char *response) {
     response[3] = IPV4; // Address type (0 for IPv4)
-    const ssize_t numBytesSent = send(clntSocket, response, 10, MSG_DONTWAIT); // Send the failure response TODO magic number, yay
+    const ssize_t numBytesSent = send(clntSocket, response, 10, 0); // Send the failure response TODO magic number, yay
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
     } else if (numBytesSent == 0) {
@@ -146,7 +145,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
         char addrStr[INET_ADDRSTRLEN];
         inet_ntop(AF_INET, &(addr->sin_addr), addrStr, sizeof(addrStr));
-        log(INFO, "Bound to local IPv4 address: %s:%d", addrStr, ntohs(addr->sin_port));
+//        log(INFO, "Bound to local IPv4 address: %s:%d", addrStr, ntohs(addr->sin_port));
     } else if (localAddr.ss_family == AF_INET6) {
         // IPv6 address
         const struct sockaddr_in6 *addr = (struct sockaddr_in6 *)&localAddr;
@@ -156,7 +155,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
 
         char addrStr[INET6_ADDRSTRLEN];
         inet_ntop(AF_INET6, &(addr->sin6_addr), addrStr, sizeof(addrStr));
-        log(INFO, "Bound to local IPv6 address: [%s]:%d", addrStr, ntohs(addr->sin6_port));
+//        log(INFO, "Bound to local IPv6 address: [%s]:%d", addrStr, ntohs(addr->sin6_port));
     } else { //todo this should not be possible, ostrich algorithm ftw
         log(ERROR, "Unsupported address family: %d", localAddr.ss_family);
         metrics_add_unsupported_input();
@@ -164,7 +163,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
     }
 
     //send the response to the client
-    const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? 10: 22, MSG_DONTWAIT); //fixme: puede ser esto, mandar largo exacto
+    const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? 10: 22, 0); //fixme: puede ser esto, mandar largo exacto
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         metrics_add_send_error();
@@ -215,8 +214,6 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
 
     data->current_user_conn.port_destination = port;
 
-    log(INFO, "Connecting to domain name %s:%d", domainName, port);
-
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
@@ -259,8 +256,6 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     data->current_user_conn.ip_destination.addr.ipv4.s_addr = htonl(data->destination.address.ipv4);
     data->current_user_conn.destination_name = NULL;
     data->current_user_conn.port_destination = data->destination.port;
-
-    log(INFO, "Connecting to IPv4 address %s:%d", inet_ntoa(*(struct in_addr *)&ip), port);
 
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
@@ -306,9 +301,6 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     data->current_user_conn.ip_destination.addr.ipv6 = data->destination.address.ipv6;
     data->current_user_conn.destination_name = NULL;
     data->current_user_conn.port_destination = data->destination.port;
-
-
-    log(INFO, "Connecting to IPv6 address [%s]:%d", ipv6, port);
 
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
