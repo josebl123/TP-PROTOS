@@ -48,7 +48,6 @@ unsigned connectWrite(struct selector_key * key) {
         }
 
         if (error != 0) { //TODO: revisar pero parece funcionar, deberia cerrar el socket anterior?
-            log(ERROR, "Connection error on remote socket %d: %s",key->fd , strerror(error));
             setResponseStatus(data->client, error);
             if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
                 log(ERROR, "Failed to set interest for remote socket %d", key->fd);
@@ -115,10 +114,6 @@ unsigned handleRequestWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
 
-    // Enviar respuesta al cliente
-    log(INFO, "Writing response to client socket %d", clntSocket);
-
-
     char response[30] = {0}; // Buffer para la respuesta
 
     // Prepare the response to send to the client
@@ -180,7 +175,6 @@ unsigned handleRequestWrite(struct selector_key *key) {
         return DONE; // TODO definir codigos de error
     }
     if (numBytesSent < (localAddr.ss_family == AF_INET ? 10: 22) ) { //todo magic numbers, yay
-        log(INFO, "Partial send: sent %zd bytes, expected %zu bytes", numBytesSent, sizeof(response));
         return REQUEST_WRITE;
     }
     // Log the number of bytes sent
@@ -205,9 +199,7 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
     strncpy(domainName, (char *)data->clientBuffer->read, domainLength);
     domainName[domainLength] = '\0'; // Asegurar que el nombre de dominio esté terminado en nulo
     buffer_read_adv(data->clientBuffer, domainLength);
-    log(INFO, "Received domain name: %s", domainName);
     const uint16_t port = ntohs(*(uint16_t *)data->clientBuffer->read); // Leer el puerto
-    log(INFO, "Received port: %d", port);
     buffer_read_adv(data->clientBuffer, 2); // Avanzar el puntero de lectura
     data->destination.addressType = DOMAINNAME; // Guardar el tipo de dirección
     strncpy(data->destination.address.domainName, domainName, sizeof(data->destination.address.domainName) - 1); // Guardar el nombre de dominio
@@ -255,11 +247,9 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
         return REQUEST_READ; // TODO definir codigos de error
     }
     uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
-    log(INFO, "Received IPv4 address: %s", inet_ntoa(*(struct in_addr *)&ip));
     buffer_read_adv(data->clientBuffer, 4);
     readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
     const uint16_t port = ntohs(*(uint16_t *)readPtr);
-    log(INFO, "Received port: %d", port);
     buffer_read_adv(data->clientBuffer, 2);
 
     data->destination.addressType = IPV4; // Guardar el tipo de dirección
@@ -299,10 +289,8 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     }
     char ipv6[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, data->clientBuffer->read, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
-    log(INFO, "Received IPv6 address: %s", ipv6);
     buffer_read_adv(data->clientBuffer, 16); // Avanzar el puntero de lectura
     const uint16_t port = ntohs(*(uint16_t *)data->clientBuffer->read); // Leer el puerto
-    log(INFO, "Received port: %d", port);
     buffer_read_adv(data->clientBuffer, 2); // Avanzar el puntero de lectura
 
     data->destination.addressType = IPV6; // Guardar el tipo de dirección
@@ -344,7 +332,6 @@ unsigned handleRequestRead(struct selector_key *key) {
     clientData *data = key->data;
 
     // Recibir mensaje del cliente
-    log(INFO, "Reading request from client socket %d", clntSocket);
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
@@ -422,7 +409,6 @@ unsigned handleDomainResolve(struct selector_key *key) {
     clientData *data = key->data; // Get the client data from the key
 
     if (data->addressResolved) {
-        log(INFO, "Address already resolved for client socket %d with status %d", key->fd, data->responseStatus);
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
             data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
@@ -432,11 +418,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
 
     int remoteSocket = -1; // Initialize remote socket
 
-    log(INFO, "Resolving domain name for client socket %d", key->fd);
-
-
     for (struct addrinfo *addr = data->remoteAddrInfo; addr != NULL; addr = addr->ai_next) { //TODO this for loop could use modularization, repeated code in setupRemoteTCPSocket
-        log(INFO, "Trying next address: %s", printAddressPort(addr, addrBuffer));
         data->remoteAddrInfo = data->remoteAddrInfo->ai_next; // Update the remote address info in client data
         remoteSocket = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
         if (remoteSocket < 0) {

@@ -37,14 +37,12 @@ unsigned handleHelloRead(struct selector_key *key) {
     }
     const uint8_t socksVersion = buffer_read(data->clientBuffer);
     const uint8_t totalAuthMethods = buffer_read(data->clientBuffer);
-    log(INFO, "Total methods: %d", totalAuthMethods); //sumo 1 porque es el segundo byte del saludo
     if( socksVersion == SOCKS_VERSION ){ //chequea que sea SOCKS5
         for(int i =0; i < totalAuthMethods; i++){
             const int authMethod = buffer_read(data->clientBuffer); // Lee el método de autenticación
             if(authMethod == AUTH_METHOD_PASSWORD){
 			    data->authMethod = AUTH_METHOD_PASSWORD;
                 selector_set_interest_key(key, OP_WRITE);
-                log(INFO, "Selected authentication method: Password");
                 buffer_reset(data->clientBuffer);
                 return HELLO_WRITE; // Cambiar al estado de escritura de saludo
             }
@@ -54,7 +52,6 @@ unsigned handleHelloRead(struct selector_key *key) {
         }
         if (socksArgs->serverAcceptsNoAuth && clientAcceptsNoAuth) {
             data->authMethod = AUTH_METHOD_NOAUTH;
-            log(INFO, "Selected authentication method: No Authentication");
             buffer_reset(data->clientBuffer);
             selector_set_interest_key(key, OP_WRITE);
             return HELLO_WRITE; // Cambiar al estado de escritura de saludo
@@ -111,7 +108,6 @@ unsigned handleAuthRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de autenticación del cliente
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
-    log(INFO, "reading auth info");
     size_t writeLimit;
     uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
@@ -128,31 +124,26 @@ unsigned handleAuthRead(struct selector_key *key) {
     const uint8_t socksVersion = buffer_read(data->clientBuffer);
     if( socksVersion == SUBNEGOTIATION_VERSION && numBytesRcvd >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes TODO magic nums
         usernameLength = buffer_read(data->clientBuffer); // Longitud del nombre de usuario
-        log(INFO, "Username length: %d", usernameLength);
     } else {
         // Si no es SOCKS_VERSION o no tengo suficientes bytes, error
         log(ERROR, "Unsupported authentication method or incomplete data");
         return ERROR_CLIENT; // TODO definir codigos de error
     }
     if(numBytesRcvd < usernameLength + 2) { // Si no tengo suficientes bytes para el nombre de usuario
-        log(ERROR, "Incomplete authentication data received");
         return AUTH_READ; // TODO definir codigos de error
     }
     strncpy( data->authInfo.username, (char *) data->clientBuffer->read, usernameLength); // Copio el nombre de usuario al buffer
     buffer_read_adv(data->clientBuffer, usernameLength); // Avanzo el puntero de lectura del buffer
     data->authInfo.username[usernameLength] = '\0'; // Asegurar que el nombre de usuario esté terminado en nulo
-    log(INFO, "Received username: %s", data->authInfo.username);
 
     const int passwordLength = buffer_read(data->clientBuffer); // TODO: faltan chequeos de errores
 
     if( false ) { // TODO: este chequeo
-        log(ERROR, "Incomplete authentication data received");
         return AUTH_READ; // TODO definir codigos de error
     }
     strncpy( data->authInfo.password,(char *) data->clientBuffer->read, passwordLength); // Copio el nombre de usuario al buffer
     buffer_read_adv(data->clientBuffer, passwordLength);// Avanzo el offset del buffer
     data->authInfo.password[passwordLength] = '\0'; // Asegurar que la contraseña esté terminada en nulo
-    log(INFO, "Received password: %s", data->authInfo.password);
     selector_set_interest_key(key, OP_WRITE); // TODO: devuelve estado, chequear
     return AUTH_WRITE; // Cambiar al estado de escritura de autenticación
 }
@@ -175,8 +166,6 @@ unsigned handleAuthWrite(struct selector_key *key) {
     }
 
     const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), MSG_DONTWAIT);
-
-    log(INFO, "Sending authentication response to client socket %d with bytes: %zu", clntSocket, numBytesSent);
 
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
