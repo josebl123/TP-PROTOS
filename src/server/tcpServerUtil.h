@@ -15,11 +15,32 @@
 #define SUBNEGOTIATION_VERSION 0x01 // Subnegotiation method for password authentication
 #define MAX_ADDR_BUFFER 128
 
+#define REQUEST_HEADER 4 // Size of the request header (version, command, reserved, address type)
+#define IPV4_ADDR_SIZE 4 // Size of IPv4 address in bytes
+#define IPV6_ADDR_SIZE 16 // Size of IPv6 address in bytes
+
+#define PORT_STR_SIZE 6 // Size of port string (max 5 digits + null terminator)
+#define PORT_SIZE 2 // Size of port in bytes (16 bits)
+
+#define MAX_DOMAIN_LENGTH 255 // Maximum length of a domain name
+
 enum socks5_auth_methods {
     AUTH_METHOD_NOAUTH = 0x00, // No authentication required
     AUTH_METHOD_PASSWORD = 0x02, // Username/password authentication
     NO_ACCEPTABLE_METHODS = 0xFF // No acceptable methods
 };
+
+enum socks5_auth_status {
+    AUTH_SUCCESS = 0x00, // Authentication successful
+    AUTH_FAILURE = 0x01, // Authentication failed
+};
+
+enum socks5_respose_size {
+    SOCKS5_IPV4_REQUEST = 10, // Size of the SOCKS5 response header
+    SOCKS5_IPV6_REQUEST = 22, // Size of the SOCKS5 response header for IPv6
+    SOCKS5_MAX_REQUEST_RESPONSE = 22 // Maximum size of the SOCKS5 response
+};
+
 // SOCKS5 response status codes for the request stage (RFC 1928)
 enum socks5_response_status {
     SOCKS5_SUCCEEDED = 0x00,

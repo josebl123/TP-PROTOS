@@ -48,9 +48,18 @@ void handleTcpClose(  struct selector_key *key) {
     if (data->pointerToFree) {
         freeaddrinfo(data->pointerToFree); // Liberar la estructura de direcciones remotas
     }
-    if (data->current_user_conn.destination_name) {
-        free(data->current_user_conn.destination_name); // Liberar el nombre de destino si fue asignado
+    user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
+
+    char time_str[64];
+    struct tm tm_info;
+    localtime_r(&data->current_user_conn.access_time, &tm_info);
+    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
+    metrics_connection_closed();
+
+    if (!data->isAnonymous) {
+        user_metrics_add_connection(user_metrics, &data->current_user_conn);
     }
+
     free(data->dnsRequest);
     free(data->stm);
     free(data);
@@ -60,11 +69,6 @@ void handleTcpClose(  struct selector_key *key) {
 void handleRemoteClose( struct selector_key *key) {
     log(INFO, "Closing remote socket %d", key->fd);
     remoteData *data = key->data;
-    // if (data->buffer) {
-    //     free(data->buffer->data);
-    //     free(data->buffer);
-    // }
-
     free(data->stm);
     free(data); // Liberar memoria de remoteData
     close(key->fd);
@@ -77,27 +81,6 @@ void clientClose(const unsigned state, struct selector_key *key) {
     }
     clientData *data =  key->data;
     data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
-    user_metrics * user_metrics = get_or_create_user_metrics(data->authInfo.username);
-
-    char time_str[64];
-    struct tm tm_info;
-    localtime_r(&data->current_user_conn.access_time, &tm_info);
-    strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
-
-//    log(INFO, "Saving user connection IN CLIENT CLOSE: status=%d, bytes_sent=%lu, bytes_received=%lu, port_origin=%u, port_destination=%u, destination_name=%s, access_time=%s",
-//        data->current_user_conn.status,
-//        data->current_user_conn.bytes_sent,
-//        data->current_user_conn.bytes_received,
-//        data->current_user_conn.port_origin,
-//        data->current_user_conn.port_destination,
-//        data->current_user_conn.destination_name ? data->current_user_conn.destination_name : "NULL",
-//        time_str
-//    );
-    metrics_connection_closed();
-
-    if (!data->isAnonymous) {
-        user_metrics_add_connection(user_metrics, &data->current_user_conn);
-    }
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
@@ -215,23 +198,20 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
     if (remoteBuffer == NULL) {
         log(ERROR, "Failed to allocate memory for remote buffer");
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
-        return -1; // TODO definir codigos de error
+        return -1;
     }
     remoteBuffer->data = malloc(bufferSize); // Allocate memory for the buffer data
     if (remoteBuffer->data == NULL) {
         log(ERROR, "Failed to allocate memory for remote buffer data");
-//        free(remoteBuffer); //todo i think i do this in the close, god help me
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
-        return -1; // TODO definir codigos de error
+        return -1;
     }
-    buffer_init(remoteBuffer, bufferSize, remoteBuffer->data); // Initialize the buffer with a size //TODO put this buffer somewhere to read from destination
+    buffer_init(remoteBuffer, bufferSize, remoteBuffer->data); // Initialize the buffer with a size
     remoteData *rData = malloc(sizeof(remoteData)); // Create a remoteData structure
     if (rData == NULL) {
         log(ERROR, "Failed to allocate memory for remoteData");
-//        free(remoteBuffer->data);
-//        free(remoteBuffer);
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
-        return -1; // TODO definir codigos de error
+        return -1;
     }
 
     rData->client_fd = key->fd; // Set the remote socket file descriptor
@@ -245,12 +225,10 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
     // Register the remote socket with the selector
     if (selector_register(key->s, remoteSocket, &relay_handler, OP_WRITE, rData) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
-//        free(rData->buffer->data); // Free the buffer data
-//        free(rData->buffer); // Free the buffer
         free(rData); // Free the remoteData structure
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
         close(remoteSocket);
-        return -1; // TODO definir codigos de error
+        return -1;
     }
 
     return 0;
@@ -276,7 +254,7 @@ void setResponseStatus(clientData *data, int error) {
             data->responseStatus = SOCKS5_TTL_EXPIRED;
             break;
         default:
-            data->responseStatus = SOCKS5_GENERAL_FAILURE; // Default error code TODO is this right?
+            data->responseStatus = SOCKS5_GENERAL_FAILURE; // Default error code
             break;
     }
 }
@@ -434,7 +412,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
             data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
             metrics_add_server_error();
-            return -1; // TODO definir codigos de error
+            return -1;
         }
         return remoteSock;
     }
@@ -522,21 +500,18 @@ void handleMasterRead(struct selector_key *key) {
     // aceptamos
     const int new_socket = acceptTCPConnection(key->fd);
     if (new_socket < 0) {
-        perror("accept");
+        log(ERROR, "Failed to accept new connection");
         return;
     }
 
     // bloqueo = no
     if (selector_fd_set_nio(new_socket) == -1) {
+        log(ERROR, "Failed to set non-blocking mode for new socket %d", new_socket);
         close(new_socket);
-        perror("Failed to set client socket to non-blocking mode");
         return;
     }
 
-//    // loggeo (creo q ni necesario pero queda lindo)
     getpeername(new_socket, (struct sockaddr*)&address, &addrlen);
-//    printf("New connection, socket fd is %d, ip is: %s, port: %d\n",
-//           new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
     // Prepare client data structure
     clientData *data = malloc(sizeof(clientData));
@@ -555,7 +530,12 @@ void handleMasterRead(struct selector_key *key) {
         data->origin.addressType = IPV4;
         data->origin.address.ipv4 = address.sin_addr.s_addr;
         data->origin.port = ntohs(address.sin_port);
-    } else { //TODO why not ipv6???
+    } else if (address.sin_family == AF_INET6) {
+        data->origin.addressType = IPV6;
+        struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&address;
+        memcpy(&data->origin.address.ipv6, &addr6->sin6_addr, sizeof(struct in6_addr));
+        data->origin.port = ntohs(addr6->sin6_port);
+    } else {
         log(ERROR, "Unsupported address family");
     }
 
@@ -568,13 +548,11 @@ void handleMasterRead(struct selector_key *key) {
         close(new_socket);
         return;
     }
-//    printf("Client socket %d registered with selector\n", new_socket);
 }
 
 void socks5_relay_close(struct selector_key *key) {
     remoteData *rData = key->data;
     if (rData != NULL) {
-//        log(INFO, "Closing remote socket %d for client %d", key->fd, rData->client_fd);
         if (rData->buffer != NULL) {
             free(rData->buffer->data); // Free the buffer data
             free(rData->buffer); // Free the buffer
@@ -603,7 +581,6 @@ void socks5_relay_write(struct selector_key *key) {
 void socks5_close(struct selector_key *key) {
     const clientData *data = key->data;
     if (data != NULL) {
-//      	log(INFO, "Closing client socket %d", key->fd);
         stm_handler_close(data->stm, key);
     }
 }
@@ -620,6 +597,5 @@ void socks5_write(struct selector_key *key) {
 
 void socks5_block(struct selector_key *key) {
     clientData *data = key->data;
-//    log(INFO, "Blocking client socket %d", key->fd);
     stm_handler_block(data->stm, key);
 }

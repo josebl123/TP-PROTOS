@@ -59,11 +59,11 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
         }
         log(ERROR, "send() failed on remote socket %d", clntFd);
         metrics_add_send_error();
-        return RELAY_ERROR; // TODO definir codigos de error
+        return RELAY_ERROR;
     }
     if (numBytesSent == 0) {
         log(INFO, "Remote socket %d closed connection", clntFd);
-        return RELAY_DONE; // TODO definir codigos de error
+        return RELAY_DONE;
     }
     buffer_read_adv(data->client->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     metrics_add_bytes_remote_to_client(numBytesSent);
@@ -91,11 +91,11 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
         }
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
         metrics_add_send_error();
-        return ERROR_CLIENT; // TODO definir codigos de error
+        return ERROR_CLIENT;
     }
     if (numBytesSent == 0) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
-        return DONE; // TODO definir codigos de error
+        return DONE;
     }
     buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     metrics_add_bytes_client_to_remote(numBytesSent);
@@ -123,11 +123,11 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
         }
         log(ERROR, "recv() failed on remote socket %d: %s", remoteSocket, strerror(errno));
         metrics_add_receive_error();
-        return ERROR_CLIENT; // TODO definir codigos de error
+        return ERROR_CLIENT;
     }
     if (numBytesRcvd == 0) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
-        return DONE; // TODO definir codigos de error
+        return DONE;
     }
     buffer_write_adv(data->remoteBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_remote_to_client(numBytesRcvd);
@@ -156,11 +156,11 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
         }
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
         metrics_add_receive_error();
-        return RELAY_ERROR; // TODO definir codigos de error
+        return RELAY_ERROR;
     }
     if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        return RELAY_DONE; // TODO definir codigos de error
+        return RELAY_DONE;
     }
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_client_to_remote(numBytesRcvd);
@@ -183,17 +183,15 @@ unsigned handleRelayClientRead(struct selector_key *key){
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
         metrics_add_receive_error();
-        return ERROR_CLIENT; // TODO definir codigos de error
+        return ERROR_CLIENT;
     }
     if (numBytesRcvd == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        return DONE; // TODO definir codigos de error
+        return DONE;
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_client_to_remote(numBytesRcvd);
     data->current_user_conn.bytes_sent += numBytesRcvd;
-
-//    update_selector_interests(key, key->data, clntSocket, data->remoteSocket); // Actualizar los intereses del selector
 
     return handleRelayClientWriteToRemoteAttempt(key); // Cambiar al estado de escritura de cliente relay
 }
@@ -209,11 +207,11 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on client socket %d", clntSocket);
         metrics_add_send_error();
-        return ERROR_CLIENT; // TODO definir codigos de error
+        return ERROR_CLIENT;
     }
     if (numBytesSent == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
-        return DONE; // TODO definir codigos de error
+        return DONE;
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     // metrics_add_bytes_remote_to_client(numBytesSent);
@@ -234,17 +232,15 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on remote socket %d", remoteSocket);
         metrics_add_receive_error();
-        return RELAY_ERROR; // TODO definir codigos de error
+        return RELAY_ERROR;
     }
     if (numBytesRcvd == 0) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
-        return RELAY_DONE; // TODO definir codigos de error
+        return RELAY_DONE;
     }
     buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_remote_to_client(numBytesRcvd);
     data->client->current_user_conn.bytes_received += numBytesRcvd;
-    // Aquí se podría procesar el mensaje recibido del socket remoto
-//    update_selector_interests(key, data->client, data->client_fd, remoteSocket); // Actualizar los intereses del selector
 
     return handleRelayRemoteWriteToClientAttempt(key); // Cambiar al estado de escritura de remoto relay
 }
@@ -258,19 +254,17 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
         metrics_add_send_error();
-        return RELAY_ERROR; // TODO definir codigos de error
+        return RELAY_ERROR;
     }
     if (numBytesSent == 0) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
-        return RELAY_DONE ; // TODO definir codigos de error
+        return RELAY_DONE ;
     }
     buffer_read_adv(data->client->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     // metrics_add_bytes_client_to_remote(numBytesSent);
     clientData *client = key->data;
     client->current_user_conn.bytes_sent += numBytesSent;
 
-
-//    update_selector_interests(key, data->client, data->client_fd, remoteSocket);
     return handleRelayRemoteReadFromClientAttempt(key); // Cambiar al estado de lectura de remoto relay
 }
 

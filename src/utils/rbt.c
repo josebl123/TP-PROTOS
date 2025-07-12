@@ -115,6 +115,10 @@ void rbt_free(rbt_node* node) {
     if (!node) return;
     rbt_free(node->left);
     rbt_free(node->right);
+    if (node->conn.destination_name) {
+        free(node->conn.destination_name);
+        node->conn.destination_name = NULL;
+    }
     free(node);
 }
 

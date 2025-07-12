@@ -6,6 +6,9 @@
 #define SOCKSAUTH_H
 #include "tcpServerUtil.h"
 
+#define MAX_USERNAME_LEN 64
+#define MAX_PASSWORD_LEN 64
+
 
 // Handle reading the initial hello message from the client
 unsigned handleHelloRead(struct selector_key *key);
