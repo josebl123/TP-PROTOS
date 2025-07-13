@@ -10,6 +10,8 @@
 #include <sys/socket.h>
 #include <errno.h>
 
+#include "server/serverConfigTypes.h"
+
 enum OPTIONS {
     OPTION_BUFFER_SIZE = 0x00, // Read or write buffer size
     OPTION_ACCEPTS_NO_AUTH = 0x01, // Read configuration
@@ -18,13 +20,28 @@ enum OPTIONS {
     OPTION_REMOVE_USER = 0x04, // Done with configuration
     OPTION_MAKE_ADMIN = 0x05, // Make user admin
 };
+#define OFFSET_VERSION         0
+#define OFFSET_RSV             1
+#define OFFSET_OPTION          2
+#define OFFSET_USERLEN         3
+#define OFFSET_USERNAME        4
+
+#define BUFFER_SIZE_MSG_LEN    11
+#define BUFFER_SIZE_OFFSET_0   7
+#define BUFFER_SIZE_OFFSET_1   8
+#define BUFFER_SIZE_OFFSET_2   9
+#define BUFFER_SIZE_OFFSET_3   10
+
+#define ACCEPTS_NO_AUTH_MSG_LEN 8
+
+#define ADD_USER_BASE_LEN      5
+#define REMOVE_USER_BASE_LEN   5
+#define MAKE_ADMIN_BASE_LEN    5
 
 
 unsigned handleConfigRead(struct selector_key *key){
     clientData *data = key->data;
     int clntSocket = key->fd; // Socket del cliente
-
-    log(INFO, "Reading request from client socket %d", clntSocket);
 
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
@@ -37,7 +54,6 @@ unsigned handleConfigRead(struct selector_key *key){
     }
 
     if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
     if(buffer_read(data->clientBuffer) != VERSION) {
@@ -48,94 +64,140 @@ unsigned handleConfigRead(struct selector_key *key){
         log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
         return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
     }
-    buffer_read_adv(data->clientBuffer, 1); // Leer los dos primeros bytes (versión y reservado)
-    if( buffer_read(data->clientBuffer) == 0x00) {
-        log(INFO, "SUCCESS");
-        return DONE; // Abortamos si la opción no es válida
+    uint8_t option = buffer_read(data->clientBuffer);
+    switch (option) {
+        case OPTION_BUFFER_SIZE:
+            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+                printf("#Ok, buffer size changed successfully\n");
+            } else {
+                printf("#Fail, buffer size change failed\n");
+            }
+            return DONE;
 
+        case OPTION_ACCEPTS_NO_AUTH:
+            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+                printf("#Ok, server now accepts no auth connections successfully\n");
+            } else {
+                printf("#Fail, accepts_no_auth change failed\n");
+            }
+            return DONE;
+
+        case OPTION_NOT_ACCEPTS_NO_AUTH:
+            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+                printf("#Ok, server only accepts auth connections successfully\n");
+            } else {
+                printf("#Fail, not_accepts_no_auth change failed\n");
+            }
+            return DONE;
+
+        case OPTION_ADD_USER:
+            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+                printf("#Ok, user added!\n");
+            } else {
+                printf("#Fail, error adding user\n");
+            }
+            return DONE;
+
+        case OPTION_REMOVE_USER:
+            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+                printf("#Ok, user removed!\n");
+            } else {
+                printf("#Fail, error removing user\n");
+            }
+            return DONE;
+
+        case OPTION_MAKE_ADMIN:
+            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+                printf("#Ok, user is now admin!\n");
+            } else {
+                printf("#Fail, error making user admin\n");
+            }
+            return DONE;
+        default:
+            printf("#Fail, unknown option\n");
+            return DONE;
     }
-    log(ERROR, "Config change failed");
-    return DONE; // Si no es un estado válido, abortamos
   }
 
 unsigned handleConfigWrite(struct selector_key *key){
-    const int clntSocket = key->fd; // Socket del cliente
-    struct clientData *data = key->data; // Datos del cliente
-    char * response = NULL; // Respuesta a enviar al cliente
-    int responseSize = 0; // Tamaño de la respuesta
-    log(INFO, "Writing configuration to client socket %d", clntSocket);
+    const int clntSocket = key->fd;
+    struct clientData *data = key->data;
+    char *response = NULL;
+    int responseSize = 0;
 
     switch (data->args->type) {
-       case BUFFER_SIZE:
-           response = calloc(11,1);
-           response[0] = VERSION; // Version for configuration
-           response[1] = RSV; // Reserved byte for configuration
-           response[2] = OPTION_BUFFER_SIZE; // Option for buffer size
-           response[7] = data->args->buffer_size >> 24; // High byte
-           response[8] = data->args->buffer_size >> 16; // Middle high byte
-           response[9] = data->args->buffer_size >> 8; // Middle low byte
-           response[10] = data->args->buffer_size & 0xFF; // Low byte
-           responseSize = 11; // Total size of the response
-
-         break;
-       case ACCEPTS_NO_AUTH: // If the client accepts no authentication
-            response = calloc(8,1);
-            response[0] = VERSION; // Version for configuration
-            response[1] = RSV; // Reserved byte for configuration
-            response[2] = data->args->accepts_no_auth ? OPTION_ACCEPTS_NO_AUTH : OPTION_NOT_ACCEPTS_NO_AUTH; // Option for accepts no auth
-            responseSize = 8; // Total size of the response
+        case BUFFER_SIZE:
+            response = calloc(BUFFER_SIZE_MSG_LEN, 1);
+            response[OFFSET_VERSION] = VERSION;
+            response[OFFSET_RSV] = RSV;
+            response[OFFSET_OPTION] = OPTION_BUFFER_SIZE;
+            response[BUFFER_SIZE_OFFSET_0] = data->args->buffer_size >> 24;
+            response[BUFFER_SIZE_OFFSET_1] = data->args->buffer_size >> 16;
+            response[BUFFER_SIZE_OFFSET_2] = data->args->buffer_size >> 8;
+            response[BUFFER_SIZE_OFFSET_3] = data->args->buffer_size & 0xFF;
+            responseSize = BUFFER_SIZE_MSG_LEN;
             break;
-
-  case ADD_USER:
-    response = calloc(5 + strlen(data->args->user.name) + strlen(data->args->user.pass), 1);
-            response[0] = VERSION; // Version for configuration
-            response[1] = RSV; // Reserved byte for configuration
-            response[2] = OPTION_ADD_USER; // Option for adding user
-            response[3] = strlen(data->args->user.name); // Length of username
-            memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
-            response[4 + strlen(data->args->user.name) ] = strlen(data->args->user.pass); // Length of password
-            memcpy(response + 5 + strlen(data->args->user.name), data->args->user.pass, strlen(data->args->user.pass)); // Copy password
-            responseSize = 5 + strlen(data->args->user.name) + strlen(data->args->user.pass); // Total size of the response
-         break;
-   case REMOVE_USER: // If the client removes a user
-            response = calloc(5 + strlen(data->args->user.name), 1);
-                response[0] = VERSION; // Version for configuration
-                response[1] = RSV; // Reserved byte for configuration
-                response[2] = OPTION_REMOVE_USER; // Option for removing user
-                response[3] = strlen(data->args->user.name); // Length of username
-                memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
-                responseSize = 5 + strlen(data->args->user.name); // Total size of the response
+        case ACCEPTS_NO_AUTH:
+            response = calloc(ACCEPTS_NO_AUTH_MSG_LEN, 1);
+            response[OFFSET_VERSION] = VERSION;
+            response[OFFSET_RSV] = RSV;
+            response[OFFSET_OPTION] = data->args->accepts_no_auth ? OPTION_ACCEPTS_NO_AUTH : OPTION_NOT_ACCEPTS_NO_AUTH;
+            responseSize = ACCEPTS_NO_AUTH_MSG_LEN;
             break;
-  case MAKE_ADMIN: // If the client adds an admin
-            response = calloc(5 + strlen(data->args->user.name), 1);
-            response[0] = VERSION; // Version for configuration
-            response[1] = RSV; // Reserved byte for configuration
-            response[2] = OPTION_MAKE_ADMIN; // Option for making user admin
-            response[3] = strlen(data->args->user.name); // Length of username
-            memcpy(response + 4, data->args->user.name, strlen(data->args->user.name)); // Copy username
-            responseSize = 5 + strlen(data->args->user.name); // Total size of the response
+        case ADD_USER: {
+            int user_len = strlen(data->args->user.name);
+            int pass_len = strlen(data->args->user.pass);
+            responseSize = ADD_USER_BASE_LEN + user_len + pass_len;
+            response = calloc(responseSize, 1);
+            response[OFFSET_VERSION] = VERSION;
+            response[OFFSET_RSV] = RSV;
+            response[OFFSET_OPTION] = OPTION_ADD_USER;
+            response[OFFSET_USERLEN] = user_len;
+            memcpy(response + OFFSET_USERNAME, data->args->user.name, user_len);
+            response[OFFSET_USERNAME + user_len] = pass_len;
+            memcpy(response + OFFSET_USERNAME + user_len + 1, data->args->user.pass, pass_len);
             break;
-  default:
+        }
+        case REMOVE_USER: {
+            int user_len = strlen(data->args->user.name);
+            responseSize = REMOVE_USER_BASE_LEN + user_len;
+            response = calloc(responseSize, 1);
+            response[OFFSET_VERSION] = VERSION;
+            response[OFFSET_RSV] = RSV;
+            response[OFFSET_OPTION] = OPTION_REMOVE_USER;
+            response[OFFSET_USERLEN] = user_len;
+            memcpy(response + OFFSET_USERNAME, data->args->user.name, user_len);
+            break;
+        }
+        case MAKE_ADMIN: {
+            int user_len = strlen(data->args->user.name);
+            responseSize = MAKE_ADMIN_BASE_LEN + user_len;
+            response = calloc(responseSize, 1);
+            response[OFFSET_VERSION] = VERSION;
+            response[OFFSET_RSV] = RSV;
+            response[OFFSET_OPTION] = OPTION_MAKE_ADMIN;
+            response[OFFSET_USERLEN] = user_len;
+            memcpy(response + OFFSET_USERNAME, data->args->user.name, user_len);
+            break;
+        }
+        default:
             log(ERROR, "Unknown configuration option: %d", data->args->type);
-            return ERROR_CLIENT; // Abortamos si la opción no es válida
-     }
-    ssize_t sent = send(clntSocket, response,responseSize, 0);
-    if( sent < 0) {
+            return ERROR_CLIENT;
+    }
+    ssize_t sent = send(clntSocket, response, responseSize, 0);
+    if (sent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         free(response);
-        return ERROR_CLIENT; // Abortamos si hubo error al enviar
+        return ERROR_CLIENT;
     }
     if (sent == 0) {
-        log(INFO, "Closed");
         free(response);
         return DONE;
     }
     free(response);
-    selector_set_interest_key(key, OP_READ); // Desregistrar el socket del selector
-    log(INFO, "Sent configuration response to client socket %d", clntSocket);
-    return CONFIG_READ; // Cambia
-
- }
+    selector_set_interest_key(key, OP_READ);
+    return CONFIG_READ;
+}
 
 
 

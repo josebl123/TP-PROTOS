@@ -23,12 +23,41 @@
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 
+unsigned send_auth_fail(struct selector_key *key) {
+    clientConfigData *data = key->data;
+    const int clntSocket = key->fd;
+
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, STATUS_FAIL);
+
+    const size_t availableBytes;
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
+    const ssize_t sent = send(clntSocket, ptr, availableBytes, 0);
+    if (sent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No se pudo enviar por ahora, volver a intentar más tarde
+            return AUTH_FAIL;
+        }
+        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+        return CONFIG_DONE;
+    }
+    if (sent == 0) {
+        return CONFIG_DONE;
+    }
+    buffer_read_adv(data->clientBuffer, sent); // Avanzar el puntero de lectura del buffer
+    return CONFIG_DONE;
+}
+
 unsigned handleAuthConfigWrite(struct selector_key *key) {
     const int clntSocket = key->fd;
     const clientConfigData *data = key->data;
     size_t availableBytes;
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
     const ssize_t sent = send(clntSocket,ptr, availableBytes, 0);
+    printf("availableBytes: %zu, ptr: %p, clntSocket: %d\n", availableBytes, ptr, clntSocket);
+    printf("sent %zd bytes to client socket %d\n", sent, clntSocket);
     if (sent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
@@ -38,18 +67,16 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
         return CONFIG_DONE;
     }
     if (sent == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return CONFIG_DONE;
     }
     buffer_read_adv(data->clientBuffer, sent); // Avanzar el puntero de lectura del buffer
     if (sent < (ssize_t)availableBytes) {
-        log(INFO, "Partial send on client socket %d: sent %zd bytes out of %zu", clntSocket, sent, availableBytes);
         return AUTH_DONE; // Partial send, wait for next write
     }
 
     if (data->role == ROLE_INVALID) {
         log(ERROR, "Authentication failed for client socket %d", clntSocket);
-        return CONFIG_DONE;
+        return  send_auth_fail(key);
     }
 
     if (data->role != ROLE_ADMIN) {
@@ -150,8 +177,6 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
 void handleConfigDone(const unsigned state, struct selector_key *key) {
     if (state == ERROR_CONFIG_CLIENT) {
         log(ERROR, "Closing remote socket %d due to error", key->fd);
-    } else {
-        log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     selector_unregister_fd(key->s, key->fd);
 }
@@ -171,12 +196,10 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
         return CONFIG_DONE;
     }
     if (sent == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return CONFIG_DONE;
     }
     buffer_read_adv(data->clientBuffer, sent); // Avanzar el puntero de lectura del buffer
     if (sent < (ssize_t)availableBytes) {
-        log(INFO, "Partial send on client socket %d: sent %zd bytes out of %zu", clntSocket, sent, availableBytes);
         return ADMIN_INITIAL_REQUEST_WRITE; // Partial send, wait for next write
     }
 
@@ -217,7 +240,6 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", fd);
     } else {
         log(ERROR, "recv() failed on client socket %d: %s", fd, strerror(errno));
     }
@@ -263,7 +285,6 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
     const ssize_t numBytesRcvd = recv(fd, ptr, available < 3 ? available : 3, 0);
     if (numBytesRcvd <= 0) {
         if (numBytesRcvd == 0) {
-            log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
         }
         log(ERROR, "recv() failed on client socket %d", fd);
@@ -391,6 +412,10 @@ static const struct state_definition states_config[] = {
         .state = CONFIG_DONE,
         .on_arrival = handleConfigDone,
     },
+    [AUTH_FAIL] = {
+        .state = AUTH_FAIL,
+        .on_write_ready = send_auth_fail,
+    },
     [ERROR_CONFIG_CLIENT] = {
         .state = ERROR_CONFIG_CLIENT,
         .on_arrival = handleConfigDone,
@@ -466,7 +491,6 @@ void handleServerConfigClose(struct selector_key *key) {
 }
 
 void handleConfigClose(struct selector_key *key) {
-    log(INFO, "Closing client socket %d", key->fd);
     clientConfigData *data = key->data;
     if (data) {
         if (data->clientBuffer) {

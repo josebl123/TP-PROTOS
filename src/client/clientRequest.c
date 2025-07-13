@@ -1,6 +1,4 @@
-//
-// Created by nicol on 7/7/2025.
-//
+// clientRequest.c
 
 #include "clientRequest.h"
 #include <string.h>
@@ -17,14 +15,19 @@
 #include "args.h"
 #include "logger.h"
 #include "client.h"
-#include <string.h>
-#include <sys/socket.h>
+
+#define VERSION_OFFSET         0
+#define RSV_OFFSET             1
+#define OPTION_OFFSET          2
+#define USERNAME_LENGTH_OFFSET 3
+#define HEADER_LENGTH          4 // VERSION + RSV + OPTION + USERNAME_LENGTH
+
+#define OPTION_STATS  0x00
+#define OPTION_CONFIG 0x01
 
 unsigned handleRequestRead(struct selector_key *key) {
     clientData *data = key->data;
-    int clntSocket = key->fd; // Socket del cliente
-
-    log(INFO, "Reading request from client socket %d", clntSocket);
+    int clntSocket = key->fd;
 
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
@@ -33,70 +36,63 @@ unsigned handleRequestRead(struct selector_key *key) {
 
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
-        return ERROR_CLIENT; // TODO definir codigos de error
+        return ERROR_CLIENT;
     }
-
     if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
     if(buffer_read(data->clientBuffer) != VERSION) {
         log(ERROR, "Invalid version in authentication request from client socket %d", clntSocket);
-        return ERROR_CLIENT; // Abortamos si la versión no es correcta
+        return ERROR_CLIENT;
     }
     if (buffer_read(data->clientBuffer) != RSV) {
         log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
-        return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
+        return ERROR_CLIENT;
     }
-    uint8_t option = buffer_read(data->clientBuffer); // Leer la longitud del username
-    if(option == 0x01) {
-        log(INFO, "User login, reading username");
-        selector_set_interest_key(key, OP_WRITE); // Cambiamos a escritura
-        return CONFIG_WRITE; // Abortamos si la longitud del username no es correcta
+    uint8_t option = buffer_read(data->clientBuffer);
+    if(option == OPTION_CONFIG) {
+        selector_set_interest_key(key, OP_WRITE);
+        return CONFIG_WRITE;
     }
-    if( option == 0x00){
-        log(INFO, "User login, reading stats");
-        selector_set_interest_key(key, OP_READ); // Cambiamos a lectura
-        return STATS_READ; // Si el cliente quiere leer stats, pasamos a ese estado
-
+    if(option == OPTION_STATS){
+        selector_set_interest_key(key, OP_READ);
+        return STATS_READ;
     }
-    return ERROR_CLIENT; // Si no es un estado válido, abortamos
- }
+    return ERROR_CLIENT;
+}
 
 unsigned handleRequestWrite(struct selector_key *key) {
     clientData *data = key->data;
-    int clntSocket = key->fd; // Socket del cliente q
+    int clntSocket = key->fd;
 
     int usernameLength = data->args->target_user ? strlen(data->args->target_user) : 0;
+    int totalLength = HEADER_LENGTH + usernameLength + 1; // +1 por el null terminator
 
-    int totalLength = 1 + 1 + 1 + usernameLength + 1; // Version + RSV + Option + Username + Null terminator
-
-    log(INFO, "Writing request to client socket %d with username length %d", clntSocket, usernameLength);
     char *response = malloc(totalLength);
     if (response == NULL) {
         log(ERROR, "Memory allocation failed for response buffer");
-        return ERROR_CLIENT; // Abortamos si no se pudo alocar memoria
+        return ERROR_CLIENT;
     }
-    response[0] = VERSION; // Version
-    response[1] = RSV; // Reserved byte
-    response[2] = data->args->stats ? 0x00 : 0x01; // Option: 0x00 for stats, 0x01 for config
-    response[3] = usernameLength; // Length of username
+    response[VERSION_OFFSET]         = VERSION;
+    response[RSV_OFFSET]             = RSV;
+    response[OPTION_OFFSET]          = data->args->stats ? OPTION_STATS : OPTION_CONFIG;
+    response[USERNAME_LENGTH_OFFSET] = usernameLength;
     if (usernameLength > 0) {
-        memcpy(response + 4, data->args->target_user, usernameLength); // Copiamos el username
+        memcpy(response + HEADER_LENGTH, data->args->target_user, usernameLength);
     }
+    response[HEADER_LENGTH + usernameLength] = '\0'; // Null terminator
+
     ssize_t bytesSent = send(clntSocket, response, totalLength, 0);
     if (bytesSent < 0) {
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         free(response);
-        return ERROR_CLIENT; // Abortamos si hubo error al enviar
+        return ERROR_CLIENT;
     }
     if (bytesSent == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         free(response);
-        return DONE; // Cliente cerró la conexión
+        return DONE;
     }
-    free(response); // Liberamos la memoria del response
-    selector_set_interest_key(key, OP_READ); // Cambiamos a lectura
-    return REQUEST_READ; // Pasamos al siguiente estado de lectura
-
-  }
+    free(response);
+    selector_set_interest_key(key, OP_READ);
+    return REQUEST_READ;
+}

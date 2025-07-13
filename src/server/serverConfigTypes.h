@@ -23,6 +23,7 @@
 typedef enum {
     READ_CREDENTIALS,         // Recibir: VERSION RSV ULEN USER PLEN PASS
     AUTH_DONE,                // Enviar resultado de autenticación
+    AUTH_FAIL,
 
     // USER: métricas personales
     USER_METRICS,             // Enviar métricas del usuario autenticado

@@ -9,69 +9,70 @@
 #include "selector.h"
 #include "tcpClientUtil.h"
 #include "client.h"
-#define MAX_ADDR_BUFFER 128
-#define CONFIG_VERSION 0x01
 
+#define MAX_ADDR_BUFFER      128
+#define CONFIG_VERSION       0x01
+#define RSV                 0x00 // Asegúrate de definir RSV si no está en los headers
 
-
+// Offsets y tamaños para el header de stats
+#define STATS_HEADER_LEN     3
+#define STATS_BODYLEN_LEN    4
+#define STATS_TOTAL_HEADER   (STATS_HEADER_LEN + STATS_BODYLEN_LEN)
+#define STATS_STATUS_OK      0x00
 
 int tcpClientSocket(const char *host, const char *service) {
     char addrBuffer[MAX_ADDR_BUFFER];
-    struct addrinfo addrCriteria;                   // Criteria for address match
-    memset(&addrCriteria, 0, sizeof(addrCriteria)); // Zero out structure
-    addrCriteria.ai_family = AF_UNSPEC;             // v4 or v6 is OK
-    addrCriteria.ai_socktype = SOCK_STREAM;         // Only streaming sockets
-    addrCriteria.ai_protocol = IPPROTO_TCP;         // Only TCP protocol
+    struct addrinfo addrCriteria;
+    memset(&addrCriteria, 0, sizeof(addrCriteria));
+    addrCriteria.ai_family = AF_UNSPEC;
+    addrCriteria.ai_socktype = SOCK_STREAM;
+    addrCriteria.ai_protocol = IPPROTO_TCP;
 
-    // Get address(es)
-    struct addrinfo *servAddr; // Holder for returned list of server addrs
+    struct addrinfo *servAddr;
     int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
     if (rtnVal != 0) {
-        log(ERROR, "getaddrinfo() failed %s", gai_strerror(rtnVal))
+        log(ERROR, "getaddrinfo() failed %s", gai_strerror(rtnVal));
         return -1;
     }
 
     int sock = -1;
     for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
-        // Create a reliable, stream socket using TCP
         sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
         if (sock >= 0) {
             errno = 0;
-            // Establish the connection to the server
-            if ( connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
-                log(INFO, "can't connectto %s: %s", printAddressPort(addr, addrBuffer), strerror(errno))
-                close(sock); 	// Socket connection failed; try next address
+            if (connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
+                close(sock);
                 sock = -1;
             }
         } else {
-            log(DEBUG, "Can't create client socket on %s",printAddressPort(addr, addrBuffer))
+            log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer));
         }
     }
 
     freeaddrinfo(servAddr);
     return sock;
 }
-void client_close(struct selector_key *key){
+
+void client_close(struct selector_key *key) {
     const clientData *data = key->data;
     if (data != NULL) {
-        log(INFO, "Closing client socket %d", key->fd);
         stm_handler_close(data->stm, key);
     }
 }
-void client_read(struct selector_key *key){
+
+void client_read(struct selector_key *key) {
     clientData *data = key->data;
-    stm_handler_read(data->stm, key); //usar enum para detectar errores
+    stm_handler_read(data->stm, key);
 }
-void client_write(struct selector_key *key){
+
+void client_write(struct selector_key *key) {
     clientData *data = key->data;
-    stm_handler_write(data->stm, key); //usar enum para detectar errores
+    stm_handler_write(data->stm, key);
 }
-void client_block(struct selector_key *key){
-    log(INFO, "Blocking client socket %d", key->fd);
-    // Aquí podrías implementar lógica para bloquear el socket si es necesario
-    // Por ejemplo, podrías registrar el socket en un estado de bloqueo o similar
-    // En este caso, simplemente estamos registrando la acción
-}
+
+// void client_block(struct selector_key *key) {
+//     log(INFO, "Blocking client socket %d", key->fd);
+// }
 
 unsigned int handleStatsRead(struct selector_key *key) {
     clientData *data = (clientData *) key->data;
@@ -81,7 +82,7 @@ unsigned int handleStatsRead(struct selector_key *key) {
     uint8_t *read_ptr = buffer_read_ptr(buf, &available);
 
     // Paso 1: leer header (3) + longitud (4)
-    if (available < 7) {
+    if (available < STATS_TOTAL_HEADER) {
         size_t space;
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
         ssize_t received = recv(key->fd, write_ptr, space, 0);
@@ -95,37 +96,36 @@ unsigned int handleStatsRead(struct selector_key *key) {
         buffer_write_adv(buf, received);
         return STATS_READ;
     }
-
+    int offset = 0;
     // Header
-    const uint8_t version = read_ptr[0];
-    const uint8_t reserved = read_ptr[1];
-    const uint8_t status  = read_ptr[2];
-
-
+    const uint8_t version  = read_ptr[offset++];
+    const uint8_t reserved = read_ptr[offset++];
+    const uint8_t status   = read_ptr[offset];
 
     if (version != CONFIG_VERSION) {
         log(ERROR, "Invalid version in stats header");
-        buffer_read_adv(buf, 7);
+        buffer_read_adv(buf, STATS_TOTAL_HEADER);
         return ERROR_CLIENT;
     }
     if (reserved != RSV) {
         log(ERROR, "Invalid reserved byte in stats header");
-        buffer_read_adv(buf, 7);
+        buffer_read_adv(buf, STATS_TOTAL_HEADER);
         return ERROR_CLIENT;
     }
-    if (status != 0x00) {
-        log(ERROR, "Server responded with error status in stats request");
-        buffer_read_adv(buf, 7);
+    if (status != STATS_STATUS_OK) {
+        printf("#Fail, error: There was an error fetching Stats\n");
+        buffer_read_adv(buf, STATS_TOTAL_HEADER);
         return ERROR_CLIENT;
     }
+    printf("#Ok, Stats fetched successfully\n");
 
     // Longitud del cuerpo
     uint32_t body_len;
-    memcpy(&body_len, read_ptr + 3, 4);
+    memcpy(&body_len, read_ptr + STATS_HEADER_LEN, STATS_BODYLEN_LEN);
     body_len = ntohl(body_len);
 
     // Paso 2: esperar a tener el cuerpo completo
-    if (available < 7 + body_len) {
+    if (available < STATS_TOTAL_HEADER + body_len) {
         size_t space;
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
         ssize_t received = recv(key->fd, write_ptr, space, 0);
@@ -141,7 +141,7 @@ unsigned int handleStatsRead(struct selector_key *key) {
     }
 
     // Ya tenemos todo el mensaje: header + longitud + cuerpo
-    buffer_read_adv(buf, 7); // Consumimos header y longitud
+    buffer_read_adv(buf, STATS_TOTAL_HEADER);
 
     // Imprimir el cuerpo
     read_ptr = buffer_read_ptr(buf, &available);
@@ -152,13 +152,13 @@ unsigned int handleStatsRead(struct selector_key *key) {
 
     return DONE;
 }
+
 void handleClientClose(const unsigned state, struct selector_key *key) {
-    clientData * data = key->data;
+    clientData *data = key->data;
     free(data->stm);
     free(data->clientBuffer->data);
     free(data->clientBuffer);
     free(data);
-    log(INFO, "Client connection closed for fd %d", key->fd);
-    close(key->fd); // Close the socket
-    exit( state == DONE ? 0 : 1);
+    close(key->fd);
+    exit(state == DONE ? 0 : 1);
 }
