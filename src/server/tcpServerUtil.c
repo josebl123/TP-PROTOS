@@ -58,10 +58,13 @@ void handleTcpClose(  struct selector_key *key) {
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
     metrics_connection_closed();
 
+    data->current_user_conn.port_origin = data->origin.port;
+    fill_ip_address_from_origin(&data->current_user_conn.ip_origin, &data->origin);
+
     if (!data->isAnonymous ) {
         user_metrics_add_connection(user_metric, &data->current_user_conn);
     }
-    else if (data->isAnonymous && socksArgs->serverAcceptsNoAuth) {
+    else if (socksArgs->serverAcceptsNoAuth) {
         user_metrics * user_metrics = get_or_create_user_metrics(ANONYMOUS_USER);
         user_metrics_add_connection(user_metrics, &data->current_user_conn);
     }
@@ -544,6 +547,8 @@ void handleMasterRead(struct selector_key *key) {
     } else {
         log(ERROR, "Unsupported address family");
     }
+
+    log(INFO, "Accepted new connection from:%d", data->origin.port);
 
 
     // Registrar con interés inicial
