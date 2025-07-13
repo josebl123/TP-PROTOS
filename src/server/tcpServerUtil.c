@@ -56,6 +56,12 @@ void handleTcpClose(  struct selector_key *key) {
     struct tm tm_info;
     localtime_r(&data->current_user_conn.access_time, &tm_info);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
+    if (data->responseStatus != SOCKS5_SUCCEEDED) {
+        data->current_user_conn.status = SOCKS5_GENERAL_FAILURE; //TODO: MORE DEFINITION OF ERROR CODES
+    }
+    else {
+        data->current_user_conn.status = SOCKS5_SUCCEEDED;
+    }
     metrics_connection_closed();
 
     data->current_user_conn.port_origin = data->origin.port;
@@ -89,7 +95,7 @@ void clientClose(const unsigned state, struct selector_key *key) {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
     clientData *data =  key->data;
-    data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
+    // data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }

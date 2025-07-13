@@ -73,8 +73,10 @@ int removeUser(char * username, uint8_t ulen) {
                 socksArgs->users[i].is_admin = socksArgs->users[last_idx].is_admin;
             } else {
                 // Si es el último, solo libera
-                // free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
-                // free(socksArgs->users[i].pass);
+                if (socksArgs->users[i].is_added) {
+                    free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
+                    free(socksArgs->users[i].pass);
+                }
             }
             // Marca el último como vacío
             socksArgs->users[last_idx].name = NULL;
