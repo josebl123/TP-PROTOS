@@ -39,21 +39,22 @@ unsigned connectWrite(struct selector_key * key) {
         if ( getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
             log(ERROR, "getsockopt() failed: %s", strerror(errno));
             data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-            if (selector_set_interest(key->s,data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
+            data->client->addressResolved = 1; // Indicate that the callback is not ready
+            if (data->client->destination.addressType == DOMAINNAME && selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to notify selector for client socket %d", key->fd);
+            }else if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
                 log(ERROR, "Failed to set interest for client socket %d", key->fd);
             }
-            return RELAY_ERROR;
+            return RELAY_ERROR; // Change to the relay error state
         }
 
         if (error != 0) {
             setResponseStatus(data->client, error);
             if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
-                log(ERROR, "Failed to set interest for remote socket %d", key->fd);
-            }
-            if (data->client->destination.addressType == DOMAINNAME) {
-                if (selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
-                    log(ERROR, "Failed to notify selector for client socket %d", key->fd);
-                }
+                log(ERROR, "Failed to set interest for remote socket %d", key->fd); //todo selector failure, may god have mercy on our souls
+            }                                                                       //todo this is a mess because would need to unregister client fd, which in turn unregisters remote fd
+            if (data->client->destination.addressType == DOMAINNAME && selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to notify selector for client socket %d", key->fd);
                 data->client->addressResolved = 0; // Indicate that the callback is not ready
                 return RELAY_CONNECTING; // Stay in the connecting state to retry the connection
             }
@@ -65,14 +66,6 @@ unsigned connectWrite(struct selector_key * key) {
             return RELAY_ERROR;
         }
         data->connectionReady = 1;
-    }
-
-    if (setRemoteAddress(key->fd, data) < 0) {
-        log(ERROR, "Failed to set remote address for client socket %d", key->fd);
-        if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", key->fd);
-        }
-        return RELAY_ERROR;
     }
 
     data->client->responseStatus = SOCKS5_SUCCEEDED; // Set response status to success
@@ -95,43 +88,68 @@ unsigned connectWrite(struct selector_key * key) {
     }
     return RELAY_REMOTE; // Change to the relay remote state
 }
-void sendFailureResponse(int clntSocket, char *response) {
+
+unsigned sendFailureResponse(clientData *data, int clntSocket, unsigned error, struct selector_key *key) {
+
+    char response[SOCKS5_MAX_REQUEST_RESPONSE] = {0}; // Buffer for the response
+    response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
+    response[1] = data->responseStatus; // Respuesta de error
+    response[2] = RSV; // Reservado, debe ser 0x00
     response[3] = IPV4; // Address type (0 for IPv4)
-    const ssize_t numBytesSent = send(clntSocket, response, SOCKS5_IPV4_REQUEST, 0); // Send the failure response TODO magic number, yay
+
+    const ssize_t numBytesSent = send(clntSocket, response, SOCKS5_IPV4_REQUEST, 0); // Send the failure response
     if (numBytesSent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No se pudo enviar por ahora, volver a intentar más tarde
+            log(INFO, "send() would block on client socket %d, retrying later", clntSocket);
+            if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+                return error;
+            }
+            return FAILURE_RESPONSE; // Return to retry later
+        }
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
     } else if (numBytesSent == 0) {
         log(INFO, "Client socket %d closed connection", clntSocket);
     } else {
         log(INFO, "Sent failure response to client socket %d", clntSocket);
     }
+    return error;
+}
+
+unsigned sendFailureResponseClient(struct selector_key *key) {
+    return sendFailureResponse(key->data, key->fd, ERROR_CLIENT, key);
+}
+
+unsigned sendFailureResponseRemote(struct selector_key *key) { //todo will be needed just in case the selector fails, what a mess this is
+    remoteData *data = key->data;
+    return sendFailureResponse(data->client, data->client_fd, RELAY_ERROR, key);
 }
 
 unsigned handleRequestWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
 
+    // Get the local address info for the remote socket
+    struct sockaddr_storage localAddr;
+    socklen_t localAddrLen = sizeof(localAddr);
+    if (getsockname(data->remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
+        log(ERROR, "Failed to get local socket address: %s", strerror(errno));
+        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+        return sendFailureResponseClient(key); // Send failure response to client
+    }
+
+    if (data->responseStatus != SOCKS5_SUCCEEDED) {
+        log(ERROR, "Connection failed with status: %d", data->responseStatus);
+        return sendFailureResponseClient(key); // Send failure response to client
+    }
+
     char response[SOCKS5_MAX_REQUEST_RESPONSE] = {0}; // Buffer para la respuesta
 
     // Prepare the response to send to the client
     response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
-    response[2] = RSV; // Reservado, debe ser 0x00
-
-    // Get the local address info for the remote socket
-    struct sockaddr_storage localAddr;
-    socklen_t localAddrLen = sizeof(localAddr);
-    if (data->responseStatus == SOCKS5_SUCCEEDED && getsockname(data->remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
-        log(ERROR, "Failed to get local socket address: %s", strerror(errno));
-        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-    }
-
     response[1] = data->responseStatus; // Respuesta OK (no error)
-
-    if (data->responseStatus != SOCKS5_SUCCEEDED) {
-        log(ERROR, "Connection failed with status: %d", response[1]);
-        sendFailureResponse(clntSocket, response); // Send failure response to client
-        return ERROR_CLIENT;
-    }
+    response[2] = RSV; // Reservado, debe ser 0x00
 
     // Fill the response with the bound address and port that the client should use
     if (localAddr.ss_family == AF_INET) {
@@ -159,8 +177,13 @@ unsigned handleRequestWrite(struct selector_key *key) {
     }
 
     //send the response to the client
-    const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST, 0);
+    const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST, 0); //todo everything prior should be modularized because if ewould block the it will redo EVERYTHING
     if (numBytesSent < 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            // No se pudo enviar por ahora, volver a intentar más tarde
+            log(INFO, "send() would block on client socket %d, retrying later", clntSocket);
+            return REQUEST_WRITE; // Return to retry later
+        }
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         metrics_add_send_error();
         return ERROR_CLIENT;
@@ -169,7 +192,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
-    if (numBytesSent < (localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST) ) {
+    if (numBytesSent < (localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST) ) { //todo should preserve the to-send bytes in a buffer?
         return REQUEST_WRITE;
     }
     // Log the number of bytes sent
@@ -182,6 +205,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
     return RELAY_CLIENT;
 
 }
+
 unsigned handleDomainRequestRead(struct selector_key *key) {
     clientData *data = key->data;
 
@@ -189,10 +213,7 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
     if (domainLength < 1 ) { // Validar longitud del dominio
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         data->addressResolved = 1; // Indicate that the address is resolved (failed)
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", key->fd);
-        }
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
     size_t readLimit;
@@ -232,18 +253,15 @@ unsigned handleDomainRequestRead(struct selector_key *key) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         data->addressResolved = 1;
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key);
     }
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
 
     if ( setupTCPRemoteSocket(&data->destination, key) < 0) {
         log(ERROR, "Failed to setup TCP remote socket for domain name %s", domainName);
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", key->fd);
-        }
         data->addressResolved = 1;
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
     return DOMAIN_RESOLVING; // Cambiar al estado de escritura de solicitud
@@ -274,18 +292,16 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
 
     if ( setupTCPRemoteSocket(&data->destination, key) < 0) {
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", key->fd);
-        }
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
-    return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+    return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
 }
 
 unsigned handleIPv6RequestRead(struct selector_key *key) {
@@ -307,7 +323,8 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     // Convertir la dirección IPv6 de texto a binario
     if (inet_pton(AF_INET6, ipv6, &ipv6Addr) != 1) {
         log(ERROR, "Invalid IPv6 address format: %s", ipv6);
-        return ERROR_CLIENT; // TODO definir codigos de error
+        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+        return sendFailureResponseClient(key); // Send failure response to client
     }
     data->destination.address.ipv6 = ipv6Addr; // Guardar la dirección IPv6
     data->destination.port = port; // Guardar el puerto
@@ -319,18 +336,16 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
     buffer_reset(data->clientBuffer); // Resetear el buffer para la siguiente lectura
 
     if ( setupTCPRemoteSocket(&data->destination, key) < 0) {
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", key->fd);
-        }
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
-    return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+    return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
 }
 
 unsigned handleRequestRead(struct selector_key *key) {
@@ -364,34 +379,23 @@ unsigned handleRequestRead(struct selector_key *key) {
         log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set error status
         metrics_add_unsupported_input();
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-        }
-        return REQUEST_WRITE;
-
+        return sendFailureResponseClient(key); // Send failure response to client
     }
         // Leer el comando de la solicitud
     const uint8_t command = buffer_read(data->clientBuffer);
     if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
         log(ERROR, "Unsupported command: %d", command);
         data->responseStatus = SOCKS5_COMMAND_NOT_SUPPORTED; // Set error status
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-        }
         metrics_add_unsupported_input();
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
     const uint8_t rsv = buffer_read(data->clientBuffer); // Reservado, debe ser 0x00
     if (rsv != RSV) {
         log(ERROR, "Invalid RSV field: %d", rsv);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set error status
-        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-            data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        }
         metrics_add_unsupported_input();
-        return REQUEST_WRITE;
+        return sendFailureResponseClient(key); // Send failure response to client
     }
 
         // Leer el tipo de dirección
@@ -407,23 +411,24 @@ unsigned handleRequestRead(struct selector_key *key) {
     }
     log(ERROR, "Unsupported address type: %d", atyp);
     data->responseStatus = SOCKS5_ADDRESS_TYPE_NOT_SUPPORTED; // Set error status
-    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-    }
     metrics_add_unsupported_input();
-    return REQUEST_WRITE;
+    return sendFailureResponseClient(key); // Send failure response to client
 
 }
 unsigned handleDomainResolve(struct selector_key *key) {
     clientData *data = key->data; // Get the client data from the key
 
     if (data->addressResolved) {
+        if (data->responseStatus != SOCKS5_SUCCEEDED) {
+            log(ERROR, "Address resolution already failed with status: %d", data->responseStatus);
+            return sendFailureResponseClient(key); // Send failure response to client
+        }
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
             data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+            return sendFailureResponseClient(key); // Send failure response to client
         }
-        return REQUEST_WRITE;
+        return handleRequestWrite(key);
     }
 
     int remoteSocket = -1; // Initialize remote socket
@@ -476,11 +481,8 @@ unsigned handleDomainResolve(struct selector_key *key) {
         return DOMAIN_RESOLVING; // Change to the connecting state
     }
 
-    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to set interest for client socket %d", key->fd);
-    }
     log(ERROR, "Failed to connect to any remote address for client socket %d", key->fd);
-    return REQUEST_WRITE;
+    return sendFailureResponseClient(key); // Send failure response to client
 
 }
 
