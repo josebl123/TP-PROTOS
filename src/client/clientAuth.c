@@ -58,7 +58,7 @@ unsigned handleAuthRead(struct selector_key *key){
 
 
     if (status != STATUS_OK) {
-        printf("Authentication failed: STATUS");
+        printf("Authentication failed\n");
         return ERROR_CLIENT;
     }
     if (role == ROLE_USER) {
