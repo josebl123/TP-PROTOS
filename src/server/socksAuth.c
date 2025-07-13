@@ -238,8 +238,6 @@ unsigned handleAuthWrite(struct selector_key *key) {
     }
     buffer_read_adv(data->clientBuffer, numBytesSent);
     data->current_user_conn.access_time = time(NULL);
-    data->current_user_conn.port_origin = data->origin.port;
-    fill_ip_address_from_origin(&data->current_user_conn.ip_origin, &data->origin);
 
     return AUTH_WRITE;
 }

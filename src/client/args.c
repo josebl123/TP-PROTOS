@@ -192,7 +192,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->type = ACCEPTS_NO_AUTH;
     } else if (add_user) {
         if (strcmp(add_user, ANONYMOUS_USER) == 0) {
-            fprintf(stderr, "El nombre de usuario 'anonymus' está reservado y no puede ser utilizado.\n");
+            fprintf(stderr, "El nombre de usuario 'anonymous' está reservado y no puede ser utilizado.\n");
             exit(EXIT_FAILURE);
         }
         args->stats = false;
