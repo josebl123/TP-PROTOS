@@ -112,12 +112,14 @@ void remoteClose(const unsigned state, struct selector_key *key) {
     [DOMAIN_RESOLVING] = { .state = DOMAIN_RESOLVING, .on_block_ready = handleDomainResolve}, // Resolving domain name
     [DONE] =          { .state = DONE, .on_arrival = clientClose },
     [ERROR_CLIENT] =  { .state = ERROR_CLIENT,.on_arrival = clientClose},
+    [FAILURE_RESPONSE] = { .state = FAILURE_RESPONSE, .on_write_ready = sendFailureResponseClient }, // Write failure response to client
     [RELAY_CLIENT] = { .state = RELAY_CLIENT, .on_read_ready = handleRelayClientRead,.on_write_ready = handleRelayClientWrite  },
 };
 
 static const struct state_definition relay_states[] = {
-    [RELAY_CONNECTING] = { .state = RELAY_CONNECTING, .on_write_ready = connectWrite }, // This state handles the connection to the remote server
+    [RELAY_CONNECTING] = { .state = RELAY_CONNECTING, .on_write_ready =  connectWrite}, // This state handles the connection to the remote server
     [RELAY_REMOTE] = { .state = RELAY_REMOTE, .on_read_ready = handleRelayRemoteRead, .on_write_ready = handleRelayRemoteWrite },
+//    [FAILURE_RESPONSE] = { .state = FAILURE_RESPONSE, .on_write_ready = sendFailureResponseRemote }, // Write failure response to remote
     [RELAY_DONE] = { .state = RELAY_DONE, .on_arrival = remoteClose },
     [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = remoteClose },
 };

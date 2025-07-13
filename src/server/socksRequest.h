@@ -13,4 +13,7 @@ unsigned handleRequestRead(struct selector_key *key);
 unsigned handleRequestWrite(struct selector_key *key);
 
 unsigned handleDomainResolve(struct selector_key *key);
+
+unsigned sendFailureResponseClient(struct selector_key *key);
+
 #endif //SOCKSREQUEST_H

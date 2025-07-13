@@ -67,6 +67,7 @@ enum socks5_states {
   DONE,
   ERROR_CLIENT,
   RELAY_CLIENT,
+  FAILURE_RESPONSE,
   DOMAIN_RESOLVING,
 };
 
