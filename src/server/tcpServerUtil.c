@@ -190,19 +190,19 @@ int setupTCPServerSocket(const char *ip, const int port) {
 
     return servSock;
 }
-struct state_machine * createRemoteStateMachine() {
+struct state_machine * createRemoteStateMachine(int initial_state) {
     struct state_machine *stm = malloc(sizeof(struct state_machine));
     if (stm == NULL) {
         log(ERROR, "Failed to allocate memory for remote state machine");
         return NULL;
     }
-    stm->initial = RELAY_CONNECTING; // Initial state for remote relay
+    stm->initial = initial_state; // Initial state for remote relay
     stm->states = relay_states; // Use the relay states defined above
     stm->max_state = RELAY_ERROR; // Total number of states in the relay machine
     stm_init(stm);
     return stm;
 }
-int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
+int remoteSocketInit(const int remoteSocket, const struct selector_key *key, int initial_state, int intertest) {
     clientData *data = key->data;
 
     buffer *remoteBuffer = malloc(sizeof(buffer)); // Create a buffer for the remote socket
@@ -228,13 +228,13 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key) {
     rData->client_fd = key->fd; // Set the remote socket file descriptor
     rData->client = data; // Set the client data
     rData->buffer = remoteBuffer; // Set the buffer for the remote socket
-    rData->stm = createRemoteStateMachine(); // Create the state machine for the remote socket
+    rData->stm = createRemoteStateMachine(initial_state); // Create the state machine for the remote socket
     rData->connectionReady = 0; // Initialize the connection ready flag to false
     data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
     data->remoteSocket = remoteSocket; // Store the remote socket in client data
 
     // Register the remote socket with the selector
-    if (selector_register(key->s, remoteSocket, &relay_handler, OP_WRITE, rData) != SELECTOR_SUCCESS) {
+    if (selector_register(key->s, remoteSocket, &relay_handler, intertest, rData) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
         free(rData); // Free the remoteData structure
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
@@ -407,15 +407,30 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         return -1;
     }
 
-    if (destination->addressType != DOMAINNAME && connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen) < 0) {
-        if (errno != EINPROGRESS) { // Non-blocking connect
-            log(ERROR, "connect() failed: %s", strerror(errno));
-            int error = errno;
-            setResponseStatus(data, error); // Set the appropriate response status based on the error
-            metrics_add_server_error(); // TODO: Is this a server error?
+    int connected = connect(remoteSock, (struct sockaddr *) &remoteAddr, addrLen);
+    if (connected < 0 && errno != EINPROGRESS) {
+        log(ERROR, "connect() failed: %s", strerror(errno));
+        int error = errno;
+        setResponseStatus(data, error); // Set the appropriate response status based on the error
+        metrics_add_server_error(); // TODO: Is this a server error?
+        return -1;
+    }
+
+    if (!connected) {
+        log(INFO, "CONNECTED IMMEDIATELY to remote address %s", printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer));
+        if (remoteSocketInit(remoteSock, key, RELAY_REMOTE, OP_NOOP) < 0 ) {
+            log(ERROR, "Failed to initialize remote socket");
+            return -1; // Initialize the remote socket
+        }
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", key->fd);
+            data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+            metrics_add_server_error();
             return -1;
         }
-        if (remoteSocketInit(remoteSock, key) < 0 ) {
+        data->addressResolved = 1; // Indicate that the address is resolved (success)
+    } else {
+        if (remoteSocketInit(remoteSock, key, RELAY_CONNECTING, OP_WRITE) < 0 ) {
             log(ERROR, "Failed to initialize remote socket");
             return -1; // Initialize the remote socket
         }
@@ -425,7 +440,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             metrics_add_server_error();
             return -1;
         }
-        return remoteSock;
     }
     // Print remote address of socket
     printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer);

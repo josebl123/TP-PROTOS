@@ -169,7 +169,7 @@ void handleClientRead(struct selector_key *key);
 
 void handleTCPEchoClientClose(struct selector_key *key);
 void setResponseStatus(clientData *data, int error);
-int remoteSocketInit(const int remoteSocket, const struct selector_key *key);
+int remoteSocketInit(const int remoteSocket, const struct selector_key *key, int initial_state, int interest);
 
 void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);

@@ -301,7 +301,11 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
         return sendFailureResponseClient(key); // Send failure response to client
     }
 
-    return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
+    if (data->addressResolved) {
+        return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
+    } else {
+        return REQUEST_WRITE;
+    }
 }
 
 unsigned handleIPv6RequestRead(struct selector_key *key) {
@@ -345,7 +349,12 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
         return sendFailureResponseClient(key); // Send failure response to client
     }
 
-    return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
+    if (data->addressResolved) {
+        return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
+    } else {
+        return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+    }
+
 }
 
 unsigned handleRequestRead(struct selector_key *key) {
@@ -432,6 +441,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
     }
 
     int remoteSocket = -1; // Initialize remote socket
+    int connected = 0; // Initialize connection status
 
     for (struct addrinfo *addr = data->remoteAddrInfo; addr != NULL; addr = addr->ai_next) {
         data->remoteAddrInfo = data->remoteAddrInfo->ai_next; // Update the remote address info in client data
@@ -450,7 +460,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
             continue;
         }
 
-        if (connect(remoteSocket, addr->ai_addr, addr->ai_addrlen) < 0) {
+        if (connected = connect(remoteSocket, addr->ai_addr, addr->ai_addrlen) < 0) {
             if (errno != EINPROGRESS) { // Non-blocking connect
                 log(ERROR, "connect() failed for address %s: %s", addrBuffer, strerror(errno));
                 close(remoteSocket);
@@ -463,8 +473,28 @@ unsigned handleDomainResolve(struct selector_key *key) {
             }
         }
 
+        if (!connected) {
+            log(INFO, "Connected immediately to remote address in domain case %s", printSocketAddress(addr->ai_addr, addrBuffer));
+            if (remoteSocketInit(remoteSocket, key, RELAY_REMOTE, OP_NOOP) < 0) {
+                log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
+                close(remoteSocket);
+                remoteSocket = -1;
+                data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+                continue;
+            }
+            if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", key->fd);
+                close(remoteSocket); //todo should be unregistered from selector, bear in mind edge case that next is null, double unregister will happen
+                remoteSocket = -1; // Reset to indicate failure
+                data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+                continue;
+            }
+            return handleRequestWrite(key);
+        }
+
+
         // Successfully connected to a new address
-        if (remoteSocketInit(remoteSocket, key) < 0) {
+        if (remoteSocketInit(remoteSocket, key, RELAY_CONNECTING, OP_WRITE) < 0) {
             log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
             close(remoteSocket);
             remoteSocket = -1;
