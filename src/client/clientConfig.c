@@ -65,52 +65,59 @@ unsigned handleConfigRead(struct selector_key *key){
         return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
     }
     uint8_t option = buffer_read(data->clientBuffer);
+    int status = buffer_read(data->clientBuffer);
     switch (option) {
         case OPTION_BUFFER_SIZE:
-            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+            if (status == STATUS_OK) {
                 printf("#Ok, buffer size changed successfully\n");
             } else {
                 printf("#Fail, buffer size change failed\n");
+                failure_response_print(status);
             }
             return DONE;
 
         case OPTION_ACCEPTS_NO_AUTH:
-            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+            if (status == STATUS_OK) {
                 printf("#Ok, server now accepts no auth connections successfully\n");
             } else {
                 printf("#Fail, accepts_no_auth change failed\n");
+                failure_response_print(status);
             }
             return DONE;
 
         case OPTION_NOT_ACCEPTS_NO_AUTH:
-            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+            if (status == STATUS_OK) {
                 printf("#Ok, server only accepts auth connections successfully\n");
             } else {
                 printf("#Fail, not_accepts_no_auth change failed\n");
+                failure_response_print(status);
             }
             return DONE;
 
         case OPTION_ADD_USER:
-            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+            if (status == STATUS_OK) {
                 printf("#Ok, user added!\n");
             } else {
                 printf("#Fail, error adding user\n");
+                failure_response_print(status);
             }
             return DONE;
 
         case OPTION_REMOVE_USER:
-            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+            if (status == STATUS_OK) {
                 printf("#Ok, user removed!\n");
             } else {
                 printf("#Fail, error removing user\n");
+                failure_response_print(status);
             }
             return DONE;
 
         case OPTION_MAKE_ADMIN:
-            if (buffer_read(data->clientBuffer) == STATUS_OK) {
+            if (status == STATUS_OK) {
                 printf("#Ok, user is now admin!\n");
             } else {
                 printf("#Fail, error making user admin\n");
+                failure_response_print(status);
             }
             return DONE;
         default:

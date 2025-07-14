@@ -8,6 +8,7 @@
 
 unsigned handleConfigRead(struct selector_key *key);
 unsigned handleConfigWrite(struct selector_key *key);
+void failure_response_print(int response);
 
 #endif //CLIENTCONFIG_H
 

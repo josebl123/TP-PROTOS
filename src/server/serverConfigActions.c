@@ -131,7 +131,7 @@ unsigned attemptAdminBufferSizeChangeWrite(struct selector_key *key, bool flag) 
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
     buffer_write(data->clientBuffer, ADMIN_CMD_CHANGE_BUFFER_SIZE);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
     return handleAdminBufferSizeChangeWrite(key);
 
 }
@@ -211,7 +211,7 @@ unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts) {
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : ADMIN_CMD_REJECTS_NO_AUTH);
+    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : STATUS_SERVER_GENERAL_FAILURE);
     buffer_write(data->clientBuffer, STATUS_OK);
     return accepts ? handleAdminAcceptsNoAuthWrite(key): handleAdminRejectsNoAuthWrite(key);
 }
@@ -229,7 +229,7 @@ unsigned attemptAdminAddUserWrite(struct selector_key *key, bool flag) {
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
     buffer_write(data->clientBuffer, ADMIN_CMD_ADD_USER);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
     return handleAdminAddUserWrite(key);
 }
 
@@ -297,7 +297,7 @@ unsigned attemptAdminRemoveUserWrite(struct selector_key *key, bool flag) {
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
     buffer_write(data->clientBuffer, ADMIN_CMD_REMOVE_USER);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
     return handleAdminRemoveUserWrite(key);
 }
 
@@ -354,7 +354,7 @@ unsigned attemptAdminMakeAdminWrite(struct selector_key *key, bool flag) {
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
     buffer_write(data->clientBuffer, ADMIN_CMD_MAKE_ADMIN);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
     return handleAdminMakeAdminWrite(key);
 }
 
@@ -455,7 +455,7 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
 }
 
 void send_metrics_fail_response(int clntSocket) {
-    const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+    const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_SERVER_GENERAL_FAILURE };
     send(clntSocket, response, sizeof(response), 0);
 }
 
