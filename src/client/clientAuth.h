@@ -4,11 +4,10 @@
 
 #ifndef CLIENTAUTH_H
 #define CLIENTAUTH_H
-#include "args.h"
-#include "selector.h"
+#include "client.h"
 
-unsigned handleAuthRead(struct selector_key *key);
-unsigned handleAuthWrite(struct selector_key *key);
+unsigned handleAuthRead(clientData * data);
+unsigned handleAuthWrite(clientData * data);
 
 
 

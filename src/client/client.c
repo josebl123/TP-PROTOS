@@ -12,7 +12,6 @@
 #include "clientRequest.h"
 #include "clientConfig.h"
 #include "../utils/logger.h"
-#include "../selector.h"
 #include "../buffer.h"
 
 #include <stdio.h>
@@ -21,38 +20,17 @@
 #include <errno.h>
 
 #define BUFFER_SIZE (1024  * 32) // Define a buffer size for client communication
-static const struct state_definition states[] = {
-  [AUTH_READ] =     { .state = AUTH_READ, .on_read_ready = handleAuthRead },
-  [AUTH_WRITE] =    { .state = AUTH_WRITE, .on_write_ready = handleAuthWrite },
-  [REQUEST_READ] =  { .state = REQUEST_READ, .on_read_ready = handleRequestRead },
-  [REQUEST_WRITE] = { .state = REQUEST_WRITE, .on_write_ready = handleRequestWrite },
-  [DONE] =          { .state = DONE, .on_arrival = handleClientClose  },
-  [STATS_READ]=     {.state = STATS_READ, .on_read_ready = handleStatsRead},
-  [ERROR_CLIENT] =  { .state = ERROR_CLIENT,.on_arrival = handleClientClose},
-  [CONFIG_READ] =   { .state = CONFIG_READ, .on_read_ready = handleConfigRead },
-  [CONFIG_WRITE] =  { .state = CONFIG_WRITE, .on_write_ready = handleConfigWrite },
-};
 
-
+int clntSocket; // Global socket variable
 
 int main(int argc, char** argv) {
   struct clientArgs client_args;
   parse_client_args(argc, argv, &client_args);
   clientData *data = malloc(sizeof(clientData));
-  struct state_machine *stm = malloc(sizeof(struct state_machine));
-  if (stm == NULL) {
-    perror("Failed to allocate memory for state machine");
-    exit(EXIT_FAILURE);
-  }
-  stm->initial = AUTH_WRITE; // Initial state for client authentication
-  stm->states = states;
-  stm->max_state = ERROR_CLIENT; // Total number of states
-  stm_init(stm);
-  data->stm = stm; // Assign the state machine to client data
+
   buffer *buf = malloc(sizeof(buffer));
   if (buf == NULL) {
     perror("Failed to allocate memory for buffer");
-    free(stm);
     free(data);
     return -1;
   }
@@ -60,40 +38,21 @@ int main(int argc, char** argv) {
   if (buf->data == NULL) {
     perror("Failed to allocate memory for buffer data");
     free(buf);
-    free(stm);
     free(data);
 
     return -1;
   }
   buffer_init(buf, BUFFER_SIZE, buf->data); // Initialize the buffer
   data->clientBuffer = buf; // Assign the buffer to client data
-  const struct selector_init conf = {
-    .signal = SIGUSR1,
-    .select_timeout = { .tv_sec = 5, .tv_nsec = 0 } //TODO: esto es un timeout de 5 segundos, esta bien?
-  };
-  const selector_status status = selector_init(&conf);
-  if(status != SELECTOR_SUCCESS) {
-    perror("Failed to initialize selector");
-    exit(EXIT_FAILURE);
-  }
-  struct fdselector * selector = selector_new(INITIAL_MAX_CLIENTS);
+
   data->args = &client_args; // Assign the client arguments to client data
 
 
-  const int socket = tcpClientSocket(client_args.addr, client_args.port);
-  selector_register(selector, socket, &(fd_handler){
-      .handle_read =  client_read, // funcion para crear sockets activos
-      .handle_write = client_write,
-      .handle_close = client_close,
-  }, OP_WRITE, data);
+ clntSocket = tcpClientSocket(client_args.addr, client_args.port);
 
-  while( TRUE){
-    const int activity = selector_select(selector);
 
-    if (activity < 0 && errno!=EINTR)
-    {
-      printf("select error");
-    }
-    }
+  unsigned status  = handleAuthWrite(data); // Start with authentication write
+
+  handleClientClose(status, data);
 
 }

@@ -4,10 +4,10 @@
 
 #ifndef CLIENTCONFIG_H
 #define CLIENTCONFIG_H
-#include "selector.h"
+#include "client.h"
 
-unsigned handleConfigRead(struct selector_key *key);
-unsigned handleConfigWrite(struct selector_key *key);
+unsigned handleConfigRead(clientData * data);
+unsigned handleConfigWrite(clientData * data);
 void failure_response_print(int response);
 
 #endif //CLIENTCONFIG_H

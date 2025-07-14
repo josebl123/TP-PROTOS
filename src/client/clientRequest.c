@@ -8,7 +8,6 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include "logger.h"
-#include "selector.h"
 #include "args.h"
 #include "client.h"
 #include "clientConfig.h"
@@ -21,10 +20,9 @@
 
 #define OPTION_STATS  0x00
 #define OPTION_CONFIG 0xFF
+#include "tcpClientUtil.h"
 
-unsigned handleRequestRead(struct selector_key *key) {
-    clientData *data = key->data;
-    int clntSocket = key->fd;
+unsigned handleRequestRead(clientData *data) {
 
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
@@ -49,18 +47,10 @@ unsigned handleRequestRead(struct selector_key *key) {
 
     uint8_t status = buffer_read(data->clientBuffer);
     if(status == OPTION_CONFIG) {
-        if (selector_set_interest_key(key, OP_WRITE)!= SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-            return ERROR_CLIENT;
-        }
-        return CONFIG_WRITE;
+        return handleConfigWrite(data);
     }
     if(status == OPTION_STATS){
-        if (selector_set_interest_key(key, OP_READ)!= SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-            return ERROR_CLIENT;
-        }
-        return STATS_READ;
+        return handleStatsRead(data);
     }
     if (status != OPTION_STATS && status != OPTION_CONFIG) {
         failure_response_print(status);
@@ -69,9 +59,8 @@ unsigned handleRequestRead(struct selector_key *key) {
     return ERROR_CLIENT;
 }
 
-unsigned handleRequestWrite(struct selector_key *key) {
-    clientData *data = key->data;
-    int clntSocket = key->fd;
+unsigned handleRequestWrite(clientData *data) {
+
 
     unsigned long usernameLength = data->args->target_user ? strlen(data->args->target_user) : 0;
     int totalLength = HEADER_LENGTH + usernameLength + 1; // +1 por el null terminator
@@ -101,9 +90,5 @@ unsigned handleRequestWrite(struct selector_key *key) {
         return DONE;
     }
     free(response);
-    if (selector_set_interest_key(key, OP_READ)!= SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-        return ERROR_CLIENT;
-    }
-    return REQUEST_READ;
+    return handleRequestRead(data);
 }

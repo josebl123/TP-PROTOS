@@ -11,6 +11,7 @@
 #include <errno.h>
 
 #include "server/serverConfigTypes.h"
+#include "tcpClientUtil.h"
 
 enum OPTIONS {
     OPTION_BUFFER_SIZE = 0x00, // Read or write buffer size
@@ -39,9 +40,7 @@ enum OPTIONS {
 #define MAKE_ADMIN_BASE_LEN    5
 
 
-unsigned handleConfigRead(struct selector_key *key){
-    clientData *data = key->data;
-    int clntSocket = key->fd; // Socket del cliente
+unsigned handleConfigRead(clientData *data) {
 
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
@@ -126,9 +125,8 @@ unsigned handleConfigRead(struct selector_key *key){
     }
   }
 
-unsigned handleConfigWrite(struct selector_key *key){
-    const int clntSocket = key->fd;
-    struct clientData *data = key->data;
+unsigned handleConfigWrite(clientData *data) {
+
     char *response = NULL;
     int responseSize = 0;
 
@@ -202,11 +200,7 @@ unsigned handleConfigWrite(struct selector_key *key){
         return DONE;
     }
     free(response);
-    if (selector_set_interest_key(key, OP_READ)!= SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
-        return ERROR_CLIENT;
-    }
-    return CONFIG_READ;
+    return handleConfigRead(data);
 }
 
 

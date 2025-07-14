@@ -4,11 +4,9 @@
 
 #ifndef CLIENTREQUEST_H
 #define CLIENTREQUEST_H
+#include "client.h"
 
-#include "args.h"
-#include "selector.h"
-
-unsigned handleRequestRead(struct selector_key *key);
-unsigned handleRequestWrite(struct selector_key *key);
+unsigned handleRequestRead(clientData *data);
+unsigned handleRequestWrite(clientData *data);
 
 #endif //CLIENTREQUEST_H

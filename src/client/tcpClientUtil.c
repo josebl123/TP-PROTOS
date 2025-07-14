@@ -6,7 +6,6 @@
 #include <netdb.h>
 #include "logger.h"
 #include "util.h"
-#include "selector.h"
 #include "tcpClientUtil.h"
 #include "client.h"
 
@@ -52,17 +51,6 @@ int tcpClientSocket(const char *host, const char *service) {
     return sock;
 }
 
-void client_close(struct selector_key *key) {
-    const clientData *data = key->data;
-    if (data != NULL) {
-        stm_handler_close(data->stm, key);
-    }
-}
-
-void client_read(struct selector_key *key) {
-    const clientData *data = key->data;
-    stm_handler_read(data->stm, key);
-}
 
 void failure_response_print(int response) {
     if (response == STATUS_BAD_REQUEST) {
@@ -72,13 +60,17 @@ void failure_response_print(int response) {
     }
 }
 
-void client_write(struct selector_key *key) {
-    const clientData *data = key->data;
-    stm_handler_write(data->stm, key);
+void handleClientClose(const unsigned state, clientData * data) {
+    free(data->stm);
+    free(data->clientBuffer->data);
+    free(data->clientBuffer);
+    free(data);
+    close(clntSocket);
+    exit(state == DONE ? 0 : 1);
 }
 
-unsigned int handleStatsRead(struct selector_key *key) {
-    const clientData *data =key->data;
+
+unsigned handleStatsRead(clientData * data) {
     buffer *buf = data->clientBuffer;
 
     size_t available;
@@ -88,16 +80,16 @@ unsigned int handleStatsRead(struct selector_key *key) {
     if (available < STATS_TOTAL_HEADER) {
         size_t space;
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
-        const ssize_t received = recv(key->fd, write_ptr, space, 0);
+        const ssize_t received = recv(clntSocket, write_ptr, space, 0);
         if (received <= 0) {
             if (received == 0) {
                 log(ERROR, "Connection closed or error while receiving stats header/length");
-                return DONE;
+               return DONE;
             }
             return ERROR_CLIENT;
         }
         buffer_write_adv(buf, received);
-        return STATS_READ;
+       return  handleStatsRead(data);
     }
     int offset = 0;
     // Header
@@ -131,7 +123,7 @@ unsigned int handleStatsRead(struct selector_key *key) {
     if (available < STATS_TOTAL_HEADER + body_len) {
         size_t space;
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
-        const ssize_t received = recv(key->fd, write_ptr, space, 0);
+        const ssize_t received = recv(clntSocket, write_ptr, space, 0);
         if (received <= 0) {
             if (received == 0 ) {
                 log(ERROR, "Connection closed or error while receiving stats body");
@@ -140,7 +132,7 @@ unsigned int handleStatsRead(struct selector_key *key) {
             return ERROR_CLIENT;
         }
         buffer_write_adv(buf, received);
-        return STATS_READ;
+        return handleStatsRead(data);
     }
 
     // Ya tenemos todo el mensaje: header + longitud + cuerpo
@@ -154,15 +146,4 @@ unsigned int handleStatsRead(struct selector_key *key) {
     buffer_read_adv(buf, body_len);
 
     return DONE;
-}
-
-void handleClientClose(const unsigned state, struct selector_key *key) {
-    clientData *data = key->data;
-    selector_destroy(key->s);
-    free(data->stm);
-    free(data->clientBuffer->data);
-    free(data->clientBuffer);
-    free(data);
-    close(key->fd);
-    exit(state == DONE ? 0 : 1);
 }
