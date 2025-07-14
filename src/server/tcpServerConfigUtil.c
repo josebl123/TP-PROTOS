@@ -23,6 +23,22 @@
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 
+
+unsigned send_bad_request(struct selector_key * key) {
+    return genericWrite(key, CONFIG_DONE, BAD_REQUEST_ERROR);
+}
+
+unsigned attempt_send_bad_request_error(struct selector_key *key) {
+    clientConfigData *data = key->data;
+
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer,   ERROR );
+    buffer_write(data->clientBuffer, ROLE_USER); // status fail
+    return send_bad_request(key);
+}
+
 unsigned send_auth_fail(struct selector_key *key) {
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
@@ -32,13 +48,13 @@ unsigned send_auth_fail(struct selector_key *key) {
     buffer_write(data->clientBuffer, RSV);
     buffer_write(data->clientBuffer, data->response_code);
 
-    const size_t availableBytes;
+    size_t availableBytes;
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
     const ssize_t sent = send(clntSocket, ptr, availableBytes, 0);
     if (sent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            return AUTH_FAIL;
+            return BAD_REQUEST_ERROR;
         }
         log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
         return CONFIG_DONE;
@@ -81,7 +97,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
 
     if (data->role != ROLE_ADMIN) {
         selector_set_interest_key(key, OP_WRITE);
-        return USER_METRICS;
+        return attemptUserMetricsWrite(key);
     }
     selector_set_interest_key(key, OP_READ);
     return ADMIN_INITIAL_REQUEST_READ;
@@ -124,8 +140,13 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
 
     const uint8_t version = ptr[0];
     if (version != CONFIG_VERSION) {
-        log(ERROR, "Unsupported MAEP version: %u", version);
-        return CONFIG_DONE;
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
+    }
+    const uint8_t rsv = ptr[1];
+    if (rsv != RSV) {
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
     }
     const uint8_t userlen = ptr[2];
 
@@ -207,7 +228,7 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
 
     if (data->admin_cmd == GLOBAL_STATS) { // STATS
         selector_set_interest_key(key, OP_WRITE);
-        return ADMIN_METRICS_SEND;
+        return attemptAdminMetricsWrite(key);
     }
     if (data->admin_cmd == CONFIG) { // CONFIG
         selector_set_interest_key(key, OP_READ);
@@ -254,12 +275,12 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     const uint8_t ulen = buffer_read(data->clientBuffer);
 
     if (version != CONFIG_VERSION) {
-        log(ERROR, "Unsupported MAEP version: %u", version);
-        return CONFIG_DONE;
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
     }
     if (rsv != RSV) {
-        log(ERROR, "Invalid reserved byte in admin request: %u", rsv);
-        return CONFIG_DONE;
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
     }
 
     if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
@@ -298,20 +319,19 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
     const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
-        log(ERROR, "Unsupported MAEP version: %u", version);
-        return CONFIG_DONE;
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
     }
     const uint8_t rsv = buffer_read(data->clientBuffer);
     if (rsv != RSV) {
-        log(ERROR, "Invalid reserved byte in admin config request: %u", rsv);
-        return CONFIG_DONE;
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
     }
     const uint8_t code = buffer_read(data->clientBuffer);
-    if ( code > 0x05) {
-        log(ERROR, "Invalid admin config command code: %u", code);
-        return CONFIG_DONE;
+    if ( code > ADMIN_CMD_MAKE_ADMIN) {
+        selector_set_interest_key(key, OP_WRITE);
+        return attempt_send_bad_request_error(key);
     }
-
 
     switch (code) {
         case ADMIN_CMD_CHANGE_BUFFER_SIZE: // change buffer size
@@ -416,6 +436,10 @@ static const struct state_definition states_config[] = {
     [AUTH_FAIL] = {
         .state = AUTH_FAIL,
         .on_write_ready = send_auth_fail,
+    },
+    [BAD_REQUEST_ERROR] = {
+        .state = BAD_REQUEST_ERROR,
+        .on_write_ready = send_bad_request,
     },
     [ERROR_CONFIG_CLIENT] = {
         .state = ERROR_CONFIG_CLIENT,

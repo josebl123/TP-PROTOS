@@ -3,12 +3,14 @@
 //
 
 #include "clientAuth.h"
+#include "clientConfig.h"
 #include "args.h"
 #include "logger.h"
 #include "client.h"
 #include <string.h>
 #include <sys/socket.h>
 #include <errno.h>
+#include "clientConfig.h"
 
 #include "server/serverConfigTypes.h"
 
@@ -97,7 +99,7 @@ unsigned handleAuthWrite(struct selector_key *key){
 
     int totalLength = AUTH_REQ_USERNAME_OFFSET + usernameLength + 1 + passwordLength;
 
-    char *response = malloc(totalLength);
+    uint8_t *response = malloc(totalLength);
     if (response == NULL) {
         log(ERROR, "Memory allocation failed");
         return ERROR_CLIENT;

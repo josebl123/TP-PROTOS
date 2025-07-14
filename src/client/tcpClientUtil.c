@@ -66,13 +66,10 @@ void client_read(struct selector_key *key) {
 }
 
 void failure_response_print(int response) {
-    switch (response) {
-        case STATUS_BAD_REQUEST:
-            printf("#Fail, error: Bad request\n");
-            break;
-        default:
-            printf("#Fail, error: Server general failure\n");
-            break;
+    if (response == STATUS_BAD_REQUEST) {
+        printf("#Fail, error: Bad request\n");
+    } else {
+        printf("#Fail, error: Server general failure\n");
     }
 }
 

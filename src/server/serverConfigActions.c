@@ -454,7 +454,7 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
     return true;
 }
 
-void send_metrics_fail_response(int clntSocket) {
+void send_metrics_fail_response(const int clntSocket) {
     const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_SERVER_GENERAL_FAILURE };
     send(clntSocket, response, sizeof(response), 0);
 }
@@ -463,6 +463,14 @@ unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, const unsig
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
     const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
     if (sent < 0) {
+        if (errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", clntSocket);
+            return CONFIG_DONE; // El cliente cerró la conexión
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            log(INFO, "Socket %d would block, try again later", clntSocket);
+            return next_state; // El socket está bloqueado, intenta de nuevo
+        }
         free(data->metrics_buf);
         data->metrics_buf = NULL;
         data->metrics_buf_len = 0;
@@ -578,7 +586,7 @@ void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
     data->metrics_buf_offset = 0;
 }
 
-unsigned handleAdminMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
+unsigned attemptAdminMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
@@ -602,7 +610,14 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) { //TODO:agregar el e
     return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
 }
 
-unsigned handleUserMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
+unsigned handleAdminMetricsWrite(struct selector_key *key) {
+    return send_metrics_buffer(key->data, key->fd, ADMIN_METRICS_SEND);
+}
+unsigned handleUserMetricsWrite(struct selector_key *key) {
+    return send_metrics_buffer(key->data, key->fd, USER_METRICS);
+}
+
+unsigned attemptUserMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 

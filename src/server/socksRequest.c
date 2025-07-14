@@ -289,7 +289,7 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
         log(ERROR, "Incomplete IPv4 address received");
         return REQUEST_READ;
     }
-    uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
+    const uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
     buffer_read_adv(data->clientBuffer, IPV4_ADDR_SIZE);
     readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
     const uint16_t port = ntohs(*(uint16_t *)readPtr);
@@ -300,8 +300,26 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     data->destination.port = port; // Guardar el puerto
     data->current_user_conn.ip_destination.is_ipv6 = 0;
     data->current_user_conn.ip_destination.addr.ipv4.s_addr = htonl(data->destination.address.ipv4);
-    data->current_user_conn.destination_name = NULL;
     data->current_user_conn.port_destination = data->destination.port;
+    // === Convertir IPv4 a string ===
+    char ip_str[INET_ADDRSTRLEN];  // 16 bytes
+    struct in_addr inaddr = { .s_addr = htonl(ip) };
+    if (inet_ntop(AF_INET, &inaddr, ip_str, sizeof(ip_str)) == NULL) {
+        log(ERROR, "Failed to convert IP to string");
+        return ERROR_CLIENT;
+    }
+
+    // Liberar anterior si existía
+    if (data->current_user_conn.destination_name != NULL) {
+        free(data->current_user_conn.destination_name);
+    }
+
+    // Guardar string duplicado
+    data->current_user_conn.destination_name = strdup(ip_str);
+    if (data->current_user_conn.destination_name == NULL) {
+        log(ERROR, "Memory allocation failed for destination_name");
+        return ERROR_CLIENT;
+    }
 
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);
@@ -349,8 +367,24 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
     data->destination.port = port; // Guardar el puerto
     data->current_user_conn.ip_destination.is_ipv6 = 1;
     data->current_user_conn.ip_destination.addr.ipv6 = data->destination.address.ipv6;
-    data->current_user_conn.destination_name = NULL;
     data->current_user_conn.port_destination = data->destination.port;
+    // === Convertir IP a string y guardar ===
+    char ipv6Str[INET6_ADDRSTRLEN];
+    if (inet_ntop(AF_INET6, &ipv6Addr, ipv6Str, sizeof(ipv6Str)) == NULL) {
+        log(ERROR, "Failed to convert IPv6 to string");
+        return ERROR_CLIENT;
+    }
+
+    // Liberar si ya tenía nombre
+    if (data->current_user_conn.destination_name != NULL) {
+        free(data->current_user_conn.destination_name);
+    }
+
+    data->current_user_conn.destination_name = strdup(ipv6Str);
+    if (data->current_user_conn.destination_name == NULL) {
+        log(ERROR, "Memory allocation failed for destination_name");
+        return ERROR_CLIENT;
+    }
 
     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for client socket %d", key->fd);

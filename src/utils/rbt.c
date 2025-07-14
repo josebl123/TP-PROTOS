@@ -130,7 +130,7 @@ void print_rbt_inorder(FILE *out, const char *username, rbt_node *node) {
     static int header_printed = 0;
     if (!header_printed) {
         fprintf(out, "\n%-20s | %-10s | %-4s | %-35s | %-6s | %-20s | %-6s | %-6s | %-10s | %-10s\n",
-            "Hora", "Usuario", "Tipo", "IP Origen", "P.Orig", "Destino", "P.Dest", "Estado", "Bytes env", "Bytes rec");
+            "Time", "User", "Type", "IP Origin", "P.Orig", "Destination", "P.Dest", "Status", "Bytes sent", "Bytes rec");
         header_printed = 1;
     }
     print_rbt_inorder(out, username, node->left);
