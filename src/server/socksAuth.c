@@ -57,7 +57,7 @@ unsigned handleHelloRead(struct selector_key *key) {
 
     const uint8_t socksVersion = ptr[0];
     const uint8_t totalAuthMethods = ptr[1];
-    if (readLimit < AUTH_METHODS_START + totalAuthMethods) { // Chequear que se recibieron todos los métodos de autenticación
+    if (readLimit < AUTH_METHODS_START + (size_t)totalAuthMethods) { // Chequear que se recibieron todos los métodos de autenticación
         log(ERROR, "Insufficient data received for authentication methods");
         return HELLO_READ; // Esperar más datos
     }
@@ -92,7 +92,10 @@ unsigned handleHelloRead(struct selector_key *key) {
         log(ERROR, "Unsupported authentication method or incomplete data");
         add_new_login_error();
         data->authMethod = NO_ACCEPTABLE_METHODS;
-        selector_set_interest_key(key, OP_WRITE); // Cambiar interés a escritura para enviar error
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return attemptHelloWrite(key);
     }
     return ERROR_CLIENT;

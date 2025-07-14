@@ -96,10 +96,16 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
     }
 
     if (data->role != ROLE_ADMIN) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {;
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return attemptUserMetricsWrite(key);
     }
-    selector_set_interest_key(key, OP_READ);
+    if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+        return ERROR_CLIENT;
+    }
     return ADMIN_INITIAL_REQUEST_READ;
 }
 
@@ -140,12 +146,18 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
 
     const uint8_t version = ptr[0];
     if (version != CONFIG_VERSION) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE)!= SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
     const uint8_t rsv = ptr[1];
     if (rsv != RSV) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE)!= SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
     const uint8_t userlen = ptr[2];
@@ -189,7 +201,10 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
         data->role = ROLE_INVALID;
     }
 
-    selector_set_interest_key(key, OP_WRITE);
+    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+        return ERROR_CLIENT;
+    }
 
     return attemptAuthConfigWrite(key);
 }
@@ -227,11 +242,17 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
 
 
     if (data->admin_cmd == GLOBAL_STATS) { // STATS
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return attemptAdminMetricsWrite(key);
     }
     if (data->admin_cmd == CONFIG) { // CONFIG
-        selector_set_interest_key(key, OP_READ);
+        if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return ADMIN_COMMAND_READ;
     }
     return CONFIG_DONE;
@@ -275,11 +296,17 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     const uint8_t ulen = buffer_read(data->clientBuffer);
 
     if (version != CONFIG_VERSION) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
     if (rsv != RSV) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
 
@@ -293,8 +320,10 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     data->admin_cmd = cmd;
     strncpy(data->target_username, username, ulen);
 
-    selector_set_interest_key(key, OP_WRITE);
-
+    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", fd);
+        return ERROR_CLIENT;
+    }
     return adminAttemptInitialRequestWrite(key);
 }
 
@@ -319,39 +348,66 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
     const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
     const uint8_t rsv = buffer_read(data->clientBuffer);
     if (rsv != RSV) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
     const uint8_t code = buffer_read(data->clientBuffer);
     if ( code > ADMIN_CMD_MAKE_ADMIN) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CLIENT;
+        }
         return attempt_send_bad_request_error(key);
     }
 
     switch (code) {
         case ADMIN_CMD_CHANGE_BUFFER_SIZE: // change buffer size
-            selector_set_interest_key(key, OP_READ);
-            return ADMIN_BUFFER_SIZE_CHANGE_READ;
+            if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", fd);
+                return ERROR_CLIENT;
+            }
+        return ADMIN_BUFFER_SIZE_CHANGE_READ;
         case ADMIN_CMD_ACCEPTS_NO_AUTH: // accepts-no-auth
-            selector_set_interest_key(key, OP_WRITE);
-            return attemptAdminAcceptsAuthWrite( key, true);
+            if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", fd);
+                return ERROR_CLIENT;
+            }
+        return attemptAdminAcceptsAuthWrite( key, true);
         case ADMIN_CMD_REJECTS_NO_AUTH: // not-accepts-no-auth
-            selector_set_interest_key(key, OP_WRITE);
-            return attemptAdminAcceptsAuthWrite( key, false);
+            if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", fd);
+                return ERROR_CLIENT;
+            }
+        return attemptAdminAcceptsAuthWrite( key, false);
         case ADMIN_CMD_ADD_USER: // add-user
-            selector_set_interest_key(key, OP_READ);
-            return ADMIN_ADD_USER_READ;
+            if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", fd);
+                return ERROR_CLIENT;
+            }
+        return ADMIN_ADD_USER_READ;
         case ADMIN_CMD_REMOVE_USER: // remove-user
-            selector_set_interest_key(key, OP_READ);
-            return ADMIN_REMOVE_USER_READ;
+            if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", fd);
+                return ERROR_CLIENT;
+            }
+        return ADMIN_REMOVE_USER_READ;
         case ADMIN_CMD_MAKE_ADMIN: // make-admin
-            selector_set_interest_key(key, OP_READ);
-            return ADMIN_MAKE_ADMIN_READ;
+            if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+                log(ERROR, "Failed to set interest for client socket %d", fd);
+                return ERROR_CLIENT;
+            }
+        return ADMIN_MAKE_ADMIN_READ;
 
         default:
             log(ERROR, "Unknown admin config command code: %u", code);

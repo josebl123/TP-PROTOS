@@ -202,7 +202,10 @@ unsigned handleConfigWrite(struct selector_key *key){
         return DONE;
     }
     free(response);
-    selector_set_interest_key(key, OP_READ);
+    if (selector_set_interest_key(key, OP_READ)!= SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+        return ERROR_CLIENT;
+    }
     return CONFIG_READ;
 }
 

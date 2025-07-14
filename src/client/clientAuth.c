@@ -68,13 +68,20 @@ unsigned handleAuthRead(struct selector_key *key){
             printf("### Unauthorized\n");
             return ERROR_CLIENT;
         }
-        selector_set_interest_key(key, OP_READ);
+        if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         printf("## Authentication successful for user role\n");
         return STATS_READ;
     }
     if (role == ROLE_ADMIN) {
         buffer_reset(data->clientBuffer);
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS)
+        {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         printf("## Authentication successful for Admin role\n");
 
         return REQUEST_WRITE;
@@ -126,6 +133,9 @@ unsigned handleAuthWrite(struct selector_key *key){
     }
 
     free(response);
-    selector_set_interest_key(key, OP_READ);
+    if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+        return ERROR_CLIENT;
+    }
     return AUTH_READ;
 }

@@ -282,7 +282,10 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
     }
 
 
-    selector_set_interest_key(key, OP_WRITE);
+    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
+    }
     return attemptAdminAddUserWrite(key, flag);
 }
 
@@ -340,7 +343,10 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         flag = 0;
     }
 
-    selector_set_interest_key(key, OP_WRITE);
+    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
+    }
     return attemptAdminRemoveUserWrite(key, flag);
 }
 
@@ -396,7 +402,10 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
         flag = 0;
     }
 
-    selector_set_interest_key(key, OP_WRITE);
+    if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", fd);
+        return ERROR_CONFIG_CLIENT;
+    }
     return attemptAdminMakeAdminWrite(key, flag);
 }
 

@@ -49,11 +49,17 @@ unsigned handleRequestRead(struct selector_key *key) {
 
     uint8_t status = buffer_read(data->clientBuffer);
     if(status == OPTION_CONFIG) {
-        selector_set_interest_key(key, OP_WRITE);
+        if (selector_set_interest_key(key, OP_WRITE)!= SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return CONFIG_WRITE;
     }
     if(status == OPTION_STATS){
-        selector_set_interest_key(key, OP_READ);
+        if (selector_set_interest_key(key, OP_READ)!= SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+            return ERROR_CLIENT;
+        }
         return STATS_READ;
     }
     if (status != OPTION_STATS && status != OPTION_CONFIG) {
@@ -95,6 +101,9 @@ unsigned handleRequestWrite(struct selector_key *key) {
         return DONE;
     }
     free(response);
-    selector_set_interest_key(key, OP_READ);
+    if (selector_set_interest_key(key, OP_READ)!= SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+        return ERROR_CLIENT;
+    }
     return REQUEST_READ;
 }

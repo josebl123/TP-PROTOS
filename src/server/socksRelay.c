@@ -10,7 +10,7 @@
 
 #include "metrics/metrics.h"
 
-void update_selector_interests(struct selector_key *key, clientData *clientData, int clientFd, int remoteFd) {
+int update_selector_interests(struct selector_key *key, clientData *clientData, int clientFd, int remoteFd) {
     fd_interest client_interest = OP_NOOP;
     fd_interest remote_interest = OP_NOOP;
 
@@ -37,8 +37,15 @@ void update_selector_interests(struct selector_key *key, clientData *clientData,
     }
 
     // Aplicar los intereses
-    selector_set_interest(key->s, clientFd, client_interest);
-    selector_set_interest(key->s, remoteFd, remote_interest);
+    if (selector_set_interest(key->s, clientFd, client_interest) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for client socket %d", clientFd);
+        return -1;
+    }
+    if (selector_set_interest(key->s, remoteFd, remote_interest) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to set interest for remote socket %d", remoteFd);
+        return -1;
+    }
+    return 0;
 }
 
 
@@ -54,7 +61,8 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            update_selector_interests(key, data->client, clntFd, key->fd); // Actualizar los intereses del selector
+            if (update_selector_interests(key, data->client, clntFd, key->fd) < 0)
+                return ERROR_CLIENT;
             return RELAY_REMOTE; // Mantener el estado de escritura de remoto relay
         }
         log(ERROR, "send() failed on remote socket %d", clntFd);
@@ -69,8 +77,8 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
     metrics_add_bytes_remote_to_client(numBytesSent);
     data->client->current_user_conn.bytes_received += numBytesSent;
 
-    update_selector_interests(key, data->client, clntFd, key->fd); // Actualizar los intereses del selector
-
+    if (update_selector_interests(key, data->client, clntFd, key->fd) < 0)
+        return ERROR_CLIENT;
     return RELAY_REMOTE; // Cambiar al estado de lectura de remoto relay
 }
 
@@ -86,7 +94,8 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
+            if (update_selector_interests(key, key->data, key->fd, remoteSocket)< 0)
+                return ERROR_CLIENT;
             return RELAY_CLIENT; // Mantener el estado de escritura de cliente relay
         }
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
@@ -101,8 +110,8 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
     metrics_add_bytes_client_to_remote(numBytesSent);
     data->current_user_conn.bytes_sent += numBytesSent;
 
-    update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
-
+    if (update_selector_interests(key, key->data, key->fd, remoteSocket)< 0)
+        return ERROR_CLIENT;
     return RELAY_CLIENT; // Cambiar al estado de lectura de cliente relay
 }
 
@@ -118,7 +127,8 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
     if (numBytesRcvd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo recibir por ahora, volver a intentar más tarde
-            update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
+            if (update_selector_interests(key, key->data, key->fd, remoteSocket)< 0)
+                return ERROR_CLIENT;
             return RELAY_CLIENT; // Mantener el estado de lectura de cliente relay
         }
         if ( errno == ECONNRESET) {
@@ -136,16 +146,16 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
     metrics_add_bytes_remote_to_client(numBytesRcvd);
     data->current_user_conn.bytes_received += numBytesRcvd;
 
-    update_selector_interests(key, key->data, key->fd, remoteSocket); // Actualizar los intereses del selector
-
+    if (update_selector_interests(key, key->data, key->fd, remoteSocket)< 0)
+        return ERROR_CLIENT;
     return RELAY_CLIENT; // Cambiar al estado de lectura de cliente relay
 }
 
 
 int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
     // Este estado se usa cuando se quiere leer inmediatamente del cliente sin esperar a que haya datos del remoto
-    remoteData *data = key->data;
-    int clntSocket = data->client_fd; // Socket del cliente
+    const remoteData *data = key->data;
+    const int clntSocket = data->client_fd; // Socket del cliente
 
     // Recibir mensaje del cliente
     size_t writeLimit;
@@ -154,7 +164,8 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
     if (numBytesRcvd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo recibir por ahora, volver a intentar más tarde
-            update_selector_interests(key, data->client, clntSocket, key->fd); // Actualizar los intereses del selector
+            if (update_selector_interests(key, data->client, clntSocket, key->fd)< 0)
+                return ERROR_CLIENT;
             return RELAY_REMOTE; // Mantener el estado de lectura de remoto relay
         }
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
@@ -173,14 +184,14 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
     metrics_add_bytes_client_to_remote(numBytesRcvd);
     data->client->current_user_conn.bytes_sent += numBytesRcvd;
 
-    update_selector_interests(key, data->client, clntSocket, key->fd); // Actualizar los intereses del selector
-
+    if (update_selector_interests(key, data->client, clntSocket, key->fd)< 0)
+        return ERROR_CLIENT;
     return RELAY_REMOTE; // Cambiar al estado de lectura de remoto relay
 }
 
 
 unsigned handleRelayClientRead(struct selector_key *key){
-    int clntSocket = key->fd; // Socket del cliente
+    const int clntSocket = key->fd; // Socket del cliente
      clientData *data = key->data;
 
     // Recibir mensaje del cliente
@@ -226,10 +237,8 @@ unsigned handleRelayClientWrite(struct selector_key *key){
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     // metrics_add_bytes_remote_to_client(numBytesSent);
-    clientData *client = (clientData *)key->data;
+    clientData *client = key->data;
     client->current_user_conn.bytes_received += numBytesSent;
-
-//    update_selector_interests(key, key->data, clntSocket, data->remoteSocket); // Actualizar los intereses del selector
 
     return handleRelayClientReadFromRemoteAttempt(key); // Cambiar al estado de lectura de cliente relay
   }
