@@ -109,37 +109,31 @@ struct dnsReq{
 };
 
  struct clientData {
-  buffer * clientBuffer;
-  struct state_machine *stm; // Pointer to the state machine
-  uint8_t authMethod;
-  struct authInfo authInfo; // Authentication information
-  uint8_t isAnonymous; // Flag to indicate if the client is anonymous
+     buffer * clientBuffer;
+     buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
 
-  struct destinationInfo destination; // Destination information
+     int remoteSocket; // Socket for the remote connection
+     int clientSocket; // Socket for the client connection
 
-  struct originInfo origin; // Origin information
+     struct state_machine *stm; // Pointer to the state machine
+     struct state_machine *remote_stm; // Pointer to the state machine
 
-  int remoteSocket; // Socket for the remote connection
-  buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
-  int responseStatus; // Status of the response to the client
-  user_connection current_user_conn;
+     uint8_t authMethod;
+     struct authInfo authInfo; // Authentication information
+     uint8_t isAnonymous; // Flag to indicate if the client is anonymous
 
-  struct dnsReq *dnsRequest; // Pointer to the DNS request structure
-  int addressResolved; // Flag to indicate if the callback is ready
-  struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
+     struct destinationInfo destination; // Destination information
+     struct originInfo origin; // Origin information
 
-  struct addrinfo *pointerToFree; // Pointer to the address info to free later
+     int responseStatus; // Status of the response to the client
+     user_connection current_user_conn;
 
+     struct dnsReq *dnsRequest; // Pointer to the DNS request structure
+     int addressResolved; // Flag to indicate if the callback is ready
+
+     struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
+     struct addrinfo *pointerToFree; // Pointer to the address info to free later
 };
-
-typedef struct {
-    int client_fd; // File descriptor for the remote socket
-    struct sockaddr_storage remoteAddr; // Remote address information
-    clientData *client; // Pointer to the client data structure
-    struct state_machine *stm; // Pointer to the state machine
-    buffer *buffer; // Buffer for reading/writing data
-  bool connectionReady;
-} remoteData;
 
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *addr, const int port);

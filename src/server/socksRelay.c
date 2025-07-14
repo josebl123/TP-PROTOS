@@ -51,17 +51,17 @@ int update_selector_interests(struct selector_key *key, clientData *clientData, 
 
 int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
     // Este estado se usa cuando se quiere escribir inmediatamente al remoto sin esperar a que haya datos del cliente
-    remoteData *data = key->data;
-    int clntFd = data->client_fd; // Socket remoto
+    clientData *data = key->data;
+    int clntFd = data->clientSocket; // Socket remoto
 
     // Enviar mensaje al remoto
     size_t readLimit;
-    const uint8_t *readPtr = buffer_read_ptr(data->client->remoteBuffer, &readLimit);
+    const uint8_t *readPtr = buffer_read_ptr(data->remoteBuffer, &readLimit);
     const ssize_t numBytesSent = send(clntFd, readPtr, readLimit, 0);
     if (numBytesSent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            if (update_selector_interests(key, data->client, clntFd, key->fd) < 0)
+            if (update_selector_interests(key, data, clntFd, key->fd) < 0)
                 return ERROR_CLIENT;
             return RELAY_REMOTE; // Mantener el estado de escritura de remoto relay
         }
@@ -73,11 +73,11 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
         log(INFO, "Remote socket %d closed connection", clntFd);
         return RELAY_DONE;
     }
-    buffer_read_adv(data->client->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
+    buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     metrics_add_bytes_remote_to_client(numBytesSent);
-    data->client->current_user_conn.bytes_received += numBytesSent;
+    data->current_user_conn.bytes_received += numBytesSent;
 
-    if (update_selector_interests(key, data->client, clntFd, key->fd) < 0)
+    if (update_selector_interests(key, data, clntFd, key->fd) < 0)
         return ERROR_CLIENT;
     return RELAY_REMOTE; // Cambiar al estado de lectura de remoto relay
 }
@@ -154,17 +154,17 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
 
 int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
     // Este estado se usa cuando se quiere leer inmediatamente del cliente sin esperar a que haya datos del remoto
-    const remoteData *data = key->data;
-    const int clntSocket = data->client_fd; // Socket del cliente
+    clientData *data = key->data;
+    const int clntSocket = data->clientSocket; // Socket del cliente
 
     // Recibir mensaje del cliente
     size_t writeLimit;
-    uint8_t *writePtr = buffer_write_ptr(data->buffer, &writeLimit);
+    uint8_t *writePtr = buffer_write_ptr(data->remoteBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo recibir por ahora, volver a intentar más tarde
-            if (update_selector_interests(key, data->client, clntSocket, key->fd)< 0)
+            if (update_selector_interests(key, data, clntSocket, key->fd)< 0)
                 return ERROR_CLIENT;
             return RELAY_REMOTE; // Mantener el estado de lectura de remoto relay
         }
@@ -180,11 +180,11 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return RELAY_DONE;
     }
-    buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
+    buffer_write_adv(data->remoteBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_client_to_remote(numBytesRcvd);
-    data->client->current_user_conn.bytes_sent += numBytesRcvd;
+    data->current_user_conn.bytes_sent += numBytesRcvd;
 
-    if (update_selector_interests(key, data->client, clntSocket, key->fd)< 0)
+    if (update_selector_interests(key, data, clntSocket, key->fd)< 0)
         return ERROR_CLIENT;
     return RELAY_REMOTE; // Cambiar al estado de lectura de remoto relay
 }
@@ -244,10 +244,10 @@ unsigned handleRelayClientWrite(struct selector_key *key){
   }
 unsigned handleRelayRemoteRead(struct selector_key *key) {
     const int remoteSocket = key->fd; // Socket remoto
-    const remoteData *data = key->data;
+    clientData *data = key->data;
     // Recibir mensaje del socket remoto
     size_t writeLimit;
-    uint8_t *writePtr = buffer_write_ptr(data->buffer, &writeLimit);
+    uint8_t *writePtr = buffer_write_ptr(data->remoteBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(remoteSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         if ( errno == ECONNRESET) {
@@ -263,18 +263,18 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
         return RELAY_DONE;
     }
-    buffer_write_adv(data->buffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
+    buffer_write_adv(data->remoteBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     metrics_add_bytes_remote_to_client(numBytesRcvd);
-    data->client->current_user_conn.bytes_received += numBytesRcvd;
+    data->current_user_conn.bytes_received += numBytesRcvd;
 
     return handleRelayRemoteWriteToClientAttempt(key); // Cambiar al estado de escritura de remoto relay
 }
 unsigned handleRelayRemoteWrite(struct selector_key *key) {
     const int remoteSocket = key->fd; // Socket remoto
-    const remoteData *data = key->data;
+    const clientData *data = key->data;
     // Enviar mensaje al socket remoto
     size_t readLimit;
-    const uint8_t *readPtr = buffer_read_ptr(data->client->clientBuffer, &readLimit); //FIXME: data->client puede ser NULL si el cliente cierra la conexión antes de que se envíe el mensaje
+    const uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readLimit); //FIXME: data->client puede ser NULL si el cliente cierra la conexión antes de que se envíe el mensaje
     const ssize_t numBytesSent = send(remoteSocket, readPtr, readLimit, 0);
     if (numBytesSent < 0) {
         log(ERROR, "send() failed on remote socket %d", remoteSocket);
@@ -285,7 +285,7 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
         log(INFO, "Remote socket %d closed connection", remoteSocket);
         return RELAY_DONE ;
     }
-    buffer_read_adv(data->client->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
+    buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     // metrics_add_bytes_client_to_remote(numBytesSent);
     clientData *client = key->data;
     client->current_user_conn.bytes_sent += numBytesSent;

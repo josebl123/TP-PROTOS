@@ -77,15 +77,13 @@ void handleTcpClose(  struct selector_key *key) {
 
     free(data->dnsRequest);
     free(data->stm);
+    free(data->remote_stm);
     free(data);
     // Close the client socket
     close(key->fd);
 }
 void handleRemoteClose( struct selector_key *key) {
     log(INFO, "Closing remote socket %d", key->fd);
-    remoteData *data = key->data;
-    free(data->stm);
-    free(data); // Liberar memoria de remoteData
     close(key->fd);
 }
 void clientClose(const unsigned state, struct selector_key *key) {
@@ -98,13 +96,13 @@ void clientClose(const unsigned state, struct selector_key *key) {
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
 void remoteClose(const unsigned state, struct selector_key *key) {
-    remoteData *data = key->data;
+    clientData *data =  key->data;
     if (state == RELAY_ERROR) {
         log(ERROR, "Closing remote socket %d due to error", key->fd);
     } else {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
-    selector_unregister_fd(key->s, data->client_fd);
+    selector_unregister_fd(key->s, data->clientSocket);
 }
 
  static const struct state_definition states[] = {
@@ -223,25 +221,15 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key, int
         return -1;
     }
     buffer_init(remoteBuffer, bufferSize, remoteBuffer->data); // Initialize the buffer with a size
-    remoteData *rData = malloc(sizeof(remoteData)); // Create a remoteData structure
-    if (rData == NULL) {
-        log(ERROR, "Failed to allocate memory for remoteData");
-        data->responseStatus = SOCKS5_GENERAL_FAILURE;
-        return -1;
-    }
 
-    rData->client_fd = key->fd; // Set the remote socket file descriptor
-    rData->client = data; // Set the client data
-    rData->buffer = remoteBuffer; // Set the buffer for the remote socket
-    rData->stm = createRemoteStateMachine(initial_state); // Create the state machine for the remote socket
-    rData->connectionReady = 0; // Initialize the connection ready flag to false
-    data->remoteBuffer = remoteBuffer; // Assign the remote buffer to client data
+    data->remoteBuffer = remoteBuffer; // Set the buffer for the remote socket
+    data->remote_stm = createRemoteStateMachine(initial_state); // Create the state machine for the remote socket
     data->remoteSocket = remoteSocket; // Store the remote socket in client data
+    data->clientSocket = key->fd; // Store the client socket in client data
 
     // Register the remote socket with the selector
-    if (selector_register(key->s, remoteSocket, &relay_handler, intertest, rData) != SELECTOR_SUCCESS) {
+    if (selector_register(key->s, remoteSocket, &relay_handler, intertest, data) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
-        free(rData); // Free the remoteData structure
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
         close(remoteSocket);
         return -1;
@@ -586,31 +574,17 @@ void handleMasterRead(struct selector_key *key) {
     }
 }
 
-void socks5_relay_close(struct selector_key *key) {
-    remoteData *rData = key->data;
-    if (rData != NULL) {
-        if (rData->buffer != NULL) {
-            free(rData->buffer->data); // Free the buffer data
-            free(rData->buffer); // Free the buffer
-        }
-        if (rData->client != NULL) {
-            free(rData->client); // Free the client data
-        }
-        free(rData); // Free the remote data structure
-        close(key->fd); // Close the remote socket
-    }
-}
 void socks5_relay_read(struct selector_key *key) {
-    const remoteData *rData = key->data;
-    if (rData != NULL && rData->stm != NULL) {
-        stm_handler_read(rData->stm, key); // Read data from the remote socket
+    const clientData *data = key->data;
+    if (data != NULL && data->remote_stm != NULL) {
+        stm_handler_read(data->remote_stm, key); // Read data from the remote socket
     }
 }
 
 void socks5_relay_write(struct selector_key *key) {
-    const remoteData *rData = key->data;
-    if (rData != NULL && rData->stm != NULL) {
-        stm_handler_write(rData->stm, key); // Write data to the remote socket
+    const clientData *data = key->data;
+    if (data != NULL && data->remote_stm != NULL) {
+        stm_handler_write(data->remote_stm, key); // Write data to the remote socket
     }
 }
 
