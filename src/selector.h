@@ -127,6 +127,7 @@ typedef struct fd_handler {
   void (*handle_read)      (struct selector_key *key);
   void (*handle_write)     (struct selector_key *key);
   void (*handle_block)     (struct selector_key *key);
+    void (*handle_timeout)   (struct selector_key *key);
 
   /**
    * llamado cuando se se desregistra el fd
@@ -189,5 +190,9 @@ selector_fd_set_nio(const int fd);
 selector_status
 selector_notify_block(fd_selector s,
                  const int   fd);
+
+selector_status selector_get_interest(fd_selector s,
+                                        const int fd,
+                                        fd_interest *i);
 
 #endif

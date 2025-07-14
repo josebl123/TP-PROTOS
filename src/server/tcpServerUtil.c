@@ -23,6 +23,7 @@
 
 
 #define MAXPENDING 15 // Maximum outstanding connection requests TODO i changed this, was 5
+#define TIMEOUT_INCOMPLETE_MSG_SEC (60 * 2)
 
 static char addrBuffer[MAX_ADDR_BUFFER];
 
@@ -97,6 +98,8 @@ void clientClose(const unsigned state, struct selector_key *key) {
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
+
+
 void remoteClose(const unsigned state, struct selector_key *key) {
     remoteData *data = key->data;
     if (state == RELAY_ERROR) {
@@ -133,13 +136,15 @@ static const fd_handler client_handler = {
     .handle_read = socks5_read, // Initial read handler
     .handle_write = socks5_write, // Initial write handler
     .handle_block = socks5_block, // Block handler for DNS resolution
-    .handle_close =  handleTcpClose// Close handler // TODO add state machine on close, might be better because some states complex closing logic (eg. several attempts to connect to remote socket)
+    .handle_close =  handleTcpClose,
+    .handle_timeout = socks5_timeout,
 };
 static const fd_handler relay_handler = {
     .handle_read = socks5_relay_read, // Relay read handler
     .handle_write = socks5_relay_write, // Relay write handler
     .handle_block = NULL, // Not used in this case
-    .handle_close = handleRemoteClose // Relay close handler
+    .handle_close = handleRemoteClose, // Relay close handler
+    .handle_timeout = NULL // No timeout handling for relay
 };
 
 
@@ -521,6 +526,7 @@ int initializeClientData(clientData *data) {
     data->isAnonymous = 1; // Initialize anonymous flag to true
     memset(&data->current_user_conn, 0, sizeof(data->current_user_conn)); // Initialize current user connection data
     user_connection_init(&data->current_user_conn);
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
     return 0;
 }
 void handleMasterClose(struct selector_key *key) {
@@ -623,15 +629,37 @@ void socks5_close(struct selector_key *key) {
 
 void socks5_read(struct selector_key *key) {
     clientData *data = key->data;
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
     stm_handler_read(data->stm, key); //usar enum para detectar errores
 }
 
 void socks5_write(struct selector_key *key) {
     clientData *data = key->data;
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
     stm_handler_write(data->stm, key);
 }
 
 void socks5_block(struct selector_key *key) {
     clientData *data = key->data;
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
     stm_handler_block(data->stm, key);
+}
+
+void socks5_timeout(struct selector_key *key) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    clientData *clientData =key->data;
+    const unsigned currentState = stm_state(clientData->stm);
+    fd_interest interest;
+    if (selector_get_interest(key->s,key->fd, &interest) != SELECTOR_SUCCESS) {
+        log(ERROR, "Failed to get interest for key %d", key->fd);
+        return;
+    }
+    if ( currentState == DOMAIN_RESOLVING || interest == OP_NOOP) {
+        return;
+    }
+
+    if (difftime(now.tv_sec, clientData->last_activity.tv_sec) > TIMEOUT_INCOMPLETE_MSG_SEC) {
+        selector_unregister_fd(key->s, key->fd);
+    }
 }

@@ -130,6 +130,8 @@ struct dnsReq{
 
   struct addrinfo *pointerToFree; // Pointer to the address info to free later
 
+  struct timespec last_activity;
+
 };
 
 typedef struct {
@@ -164,5 +166,6 @@ void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);
 void socks5_write(struct selector_key *key);
 void socks5_block(struct selector_key *key);
+void socks5_timeout(struct selector_key *key);
 
 #endif

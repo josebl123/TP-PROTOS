@@ -9,7 +9,6 @@
 unsigned connectWrite(struct selector_key *key);
 // Handle reading the request from the client
 unsigned handleRequestRead(struct selector_key *key);
-// Handle writing to the client socket
 unsigned handleRequestWrite(struct selector_key *key);
 
 unsigned handleDomainResolve(struct selector_key *key);

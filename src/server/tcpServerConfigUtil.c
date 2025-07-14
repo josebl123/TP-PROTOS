@@ -544,6 +544,7 @@ static const fd_handler client_handler = {
     .handle_read = config_read,
     .handle_write = config_write,
     .handle_close = handleConfigClose,
+    .handle_timeout = NULL,
 };
 
 void config_read(struct selector_key *key) {
@@ -589,7 +590,7 @@ void handleConfigClose(struct selector_key *key) {
 void handleConfigRead(struct selector_key *key) {
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    int new_socket = acceptTCPConfigConnection(key->fd);
+    const int new_socket = acceptTCPConfigConnection(key->fd);
     if (new_socket < 0) return;
 
     if (selector_fd_set_nio(new_socket) == -1) {

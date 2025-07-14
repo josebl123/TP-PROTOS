@@ -12,7 +12,6 @@
 #include <string.h>
 #include <sys/socket.h>
 
-#include "utils/user_metrics_table.h"
 #include <time.h>
 #include "../metrics/metrics.h"
 #include "serverConfigActions.h"
@@ -52,9 +51,6 @@ unsigned handleHelloRead(struct selector_key *key) {
         log(ERROR, "Insufficient data received for authentication");
         return HELLO_READ; // Esperar más datos
     }
-
-
-
     const uint8_t socksVersion = ptr[0];
     const uint8_t totalAuthMethods = ptr[1];
     if (readLimit < AUTH_METHODS_START + (size_t)totalAuthMethods) { // Chequear que se recibieron todos los métodos de autenticación

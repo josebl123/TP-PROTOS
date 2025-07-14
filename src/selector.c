@@ -93,7 +93,6 @@ selector_init(const struct selector_init  *c) {
 finally:
     return ret;
 }
-
 selector_status
 selector_close(void) {
     // Nada para liberar.
@@ -411,6 +410,26 @@ finally:
     return ret;
 }
 
+selector_status selector_get_interest(fd_selector s,
+                                        const int fd,
+                                        fd_interest *i) {
+    selector_status ret = SELECTOR_SUCCESS;
+
+    if(NULL == s || INVALID_FD(fd) || NULL == i) {
+        ret = SELECTOR_IARGS;
+        goto finally;
+    }
+    struct item *item = s->fds + fd;
+    if(!ITEM_USED(item)) {
+        ret = SELECTOR_IARGS;
+        goto finally;
+    }
+    *i = item->interest;
+
+finally:
+    return ret;
+}
+
 selector_status
 selector_set_interest(fd_selector s, int fd, fd_interest i) {
     selector_status ret = SELECTOR_SUCCESS;
@@ -536,12 +555,14 @@ finally:
 selector_status
 selector_select(fd_selector s) {
     selector_status ret = SELECTOR_SUCCESS;
+    struct selector_key key = { .s = s };
 
     memcpy(&s->slave_r, &s->master_r, sizeof(s->slave_r));
     memcpy(&s->slave_w, &s->master_w, sizeof(s->slave_w));
     memcpy(&s->slave_t, &s->master_t, sizeof(s->slave_t));
 
     s->selector_thread = pthread_self();
+
 
     int fds = pselect(s->max_fd + 1, &s->slave_r, &s->slave_w, 0, &s->slave_t,
                       &emptyset);
@@ -574,6 +595,17 @@ selector_select(fd_selector s) {
     if(ret == SELECTOR_SUCCESS) {
         handle_block_notifications(s);
     }
+    for (int i = 0; i <= s->max_fd; i++) {
+        const struct item *item = s->fds + i;
+        if ( ITEM_USED(item)&& item->handler->handle_timeout != NULL ) {
+            key.fd = item->fd;
+            key.data = item->data;
+
+            item->handler->handle_timeout(&key);
+
+        }
+    }
+
 finally:
     return ret;
 }
