@@ -303,9 +303,10 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
 
     if (data->addressResolved) {
         return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
-    } else {
-        return REQUEST_WRITE;
     }
+
+    return REQUEST_WRITE;
+
 }
 
 unsigned handleIPv6RequestRead(struct selector_key *key) {
@@ -351,9 +352,9 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
 
     if (data->addressResolved) {
         return handleRequestWrite(key); // Cambiar al estado de escritura de solicitud
-    } else {
-        return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
     }
+    return REQUEST_WRITE; // Cambiar al estado de escritura de solicitud
+
 
 }
 
@@ -460,13 +461,13 @@ unsigned handleDomainResolve(struct selector_key *key) {
             continue;
         }
 
-        if (connected = connect(remoteSocket, addr->ai_addr, addr->ai_addrlen) < 0) {
+        if ((connected = connect(remoteSocket, addr->ai_addr, addr->ai_addrlen) < 0)) {
             if (errno != EINPROGRESS) { // Non-blocking connect
                 log(ERROR, "connect() failed for address %s: %s", addrBuffer, strerror(errno));
                 close(remoteSocket);
                 remoteSocket = -1; // Reset to indicate failure
 
-                int connectError = errno;
+                const int connectError = errno;
                 setResponseStatus(data, connectError); // Set the appropriate response status based on the error
 
                 continue;
