@@ -127,7 +127,6 @@ unsigned addUser( char * username, const uint8_t ulen,  char *password, const ui
 }
 unsigned attemptAdminBufferSizeChangeWrite(struct selector_key *key, bool flag) {
     const clientConfigData *data = key->data;
-    const int fd = key->fd;
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
@@ -173,12 +172,11 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
 
     return attemptAdminBufferSizeChangeWrite(key, flag);
 }
-
-unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
+unsigned genericWrite(struct selector_key * key, unsigned next_state, unsigned current_state) {
     const clientConfigData *data = key->data;
     const int fd = key->fd;
     size_t available;
-    const uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
     const ssize_t numBytesSent = send(fd, ptr, available, 0);
     if (numBytesSent < 0) {
         if (errno == ECONNRESET) {
@@ -187,7 +185,7 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
         }
         if ( errno == EAGAIN || errno == EWOULDBLOCK) {
             log(INFO, "Socket %d would block, try again later", fd);
-            return ADMIN_BUFFER_SIZE_CHANGE; // El socket está bloqueado, intenta de nuevo
+            return current_state; // El socket está bloqueado, intenta de nuevo
         }
         return ERROR_CONFIG_CLIENT;
     }
@@ -197,30 +195,42 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
     }
     if (numBytesSent < (ssize_t)available) {
         log(ERROR, "Partial write on client socket %d", fd);
-        return ADMIN_BUFFER_SIZE_CHANGE; // No se envió todo, intenta de nuevo
+        return current_state; // No se envió todo, intenta de nuevo
     }
     buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
     log(INFO, "Buffer size changed to %u", bufferSize);
 
-    return CONFIG_DONE;
+    return next_state;
+}
+unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
+    return genericWrite(key, CONFIG_DONE, ADMIN_BUFFER_SIZE_CHANGE);
+}
+unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts) {
+    const clientConfigData *data = key->data;
+    socksArgs->serverAcceptsNoAuth = true;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : ADMIN_CMD_REJECTS_NO_AUTH);
+    buffer_write(data->clientBuffer, STATUS_OK);
+    return accepts ? handleAdminAcceptsNoAuthWrite(key): handleAdminRejectsNoAuthWrite(key);
 }
 
 unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
-    socksArgs->serverAcceptsNoAuth = true;
-
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ACCEPTS_NO_AUTH, STATUS_OK };
-    send(key->fd, response, sizeof(response), 0);
-
-    return CONFIG_DONE;
+    return genericWrite(key, CONFIG_DONE, ADMIN_ACCEPTS_NO_AUTH);
 }
 
 unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
-    socksArgs->serverAcceptsNoAuth = false;
-
-    uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REJECTS_NO_AUTH, STATUS_OK };
-    send(key->fd, response, sizeof(response), 0);
-
-    return CONFIG_DONE;
+    return genericWrite(key, CONFIG_DONE, ADMIN_REJECTS_NO_AUTH);
+}
+unsigned attemptAdminAddUserWrite(struct selector_key *key, bool flag) {
+    const clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_ADD_USER);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminAddUserWrite(key);
 }
 
 
@@ -266,35 +276,29 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
 
     if (passlen > 0) memcpy(password, buffer_read_ptr(data->clientBuffer, &available) ,passlen);
     buffer_read_adv(data->clientBuffer, passlen);
-    int flag = 1;
-
+    bool flag = 1;
 
     if (!addUser(username, ulen, password, passlen,false)) {
         flag = 0;
     }
 
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
-    selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_ADD_USER;
 
+    selector_set_interest_key(key, OP_WRITE);
+    return attemptAdminAddUserWrite(key, flag);
 }
 
 unsigned handleAdminAddUserWrite(struct selector_key *key) {
+    return genericWrite(key, CONFIG_DONE, ADMIN_ADD_USER);
+}
+
+unsigned attemptAdminRemoveUserWrite(struct selector_key *key, bool flag) {
     const clientConfigData *data = key->data;
-    const int fd = key->fd;
-    const int flag = buffer_read(data->clientBuffer);
-
-    if (flag) {
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to add user");
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
-    }
-
-    return CONFIG_DONE;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_REMOVE_USER);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminRemoveUserWrite(key);
 }
 
 unsigned handleAdminRemoveUserRead(struct selector_key * key) {
@@ -337,29 +341,22 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         flag = 0;
     }
 
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
     selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_REMOVE_USER;
+    return attemptAdminRemoveUserWrite(key, flag);
 }
 
 unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
-    const clientConfigData *data = key->data;
-    const int fd = key->fd;
-    const int flag = buffer_read(data->clientBuffer);
-
-    if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to remove user");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
-    }
-
-    return CONFIG_DONE;
+    return genericWrite(key, CONFIG_DONE, ADMIN_REMOVE_USER);
 }
-
+unsigned attemptAdminMakeAdminWrite(struct selector_key *key, bool flag) {
+    const clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_MAKE_ADMIN);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminMakeAdminWrite(key);
+}
 
 unsigned handleAdminMakeAdminRead(struct selector_key * key) {
     const clientConfigData *data = key->data;
@@ -400,27 +397,12 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
         flag = 0;
     }
 
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
     selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_MAKE_ADMIN;
+    return attemptAdminMakeAdminWrite(key, flag);
 }
 
 unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
-    const clientConfigData *data = key->data;
-    const int fd = key->fd;
-    const int flag = buffer_read(data->clientBuffer);
-
-    if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to make admin user");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
-    }
-
-    return CONFIG_DONE;
+   return genericWrite(key, CONFIG_DONE, ADMIN_MAKE_ADMIN);
 }
 
 
@@ -596,7 +578,7 @@ void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
     data->metrics_buf_offset = 0;
 }
 
-unsigned handleAdminMetricsWrite(struct selector_key *key) {
+unsigned handleAdminMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
@@ -620,7 +602,7 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
     return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
 }
 
-unsigned handleUserMetricsWrite(struct selector_key *key) {
+unsigned handleUserMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 

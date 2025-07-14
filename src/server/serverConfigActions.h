@@ -17,6 +17,7 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key);
 unsigned handleAdminMakeAdminWrite(struct selector_key * key);
 unsigned handleAdminMetricsWrite( struct selector_key * key);
 unsigned handleUserMetricsWrite(struct selector_key * key);
+unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts);
 
 
 #endif //SERVERCONFIGACTIONS_H
