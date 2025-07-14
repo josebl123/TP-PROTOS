@@ -97,7 +97,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
 
     if (data->role != ROLE_ADMIN) {
         selector_set_interest_key(key, OP_WRITE);
-        return USER_METRICS;
+        return attemptUserMetricsWrite(key);
     }
     selector_set_interest_key(key, OP_READ);
     return ADMIN_INITIAL_REQUEST_READ;
@@ -228,7 +228,7 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
 
     if (data->admin_cmd == GLOBAL_STATS) { // STATS
         selector_set_interest_key(key, OP_WRITE);
-        return ADMIN_METRICS_SEND;
+        return attemptAdminMetricsWrite(key);
     }
     if (data->admin_cmd == CONFIG) { // CONFIG
         selector_set_interest_key(key, OP_READ);
