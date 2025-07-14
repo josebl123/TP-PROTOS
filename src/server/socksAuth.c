@@ -15,8 +15,20 @@
 #include "utils/user_metrics_table.h"
 #include <time.h>
 #include "../metrics/metrics.h"
+#include "serverConfigActions.h"
 
+#define USERNAME_START 2 // Offset for username in authentication subnegotiation
+#define PASSWORD_START 1 // Offset for password in authentication subnegotiation
+#define AUTH_METHODS_START 2 // Offset for authentication methods in the hello message
 
+unsigned attemptHelloWrite(struct selector_key *key) {
+    const clientData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, SOCKS_VERSION); // Versión del protocolo SOCKS
+    buffer_write(data->clientBuffer, data->authMethod); // Método de autenticación seleccionado
+    return handleHelloWrite(key); // Manejar la escritura del saludo
+
+}
 unsigned handleHelloRead(struct selector_key *key) {
     // Aquí se manejaría la lectura del mensaje de saludo del cliente
     int clntSocket = key->fd; // Socket del cliente
@@ -34,8 +46,22 @@ unsigned handleHelloRead(struct selector_key *key) {
         return DONE;
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
-    const uint8_t socksVersion = buffer_read(data->clientBuffer);
-    const uint8_t totalAuthMethods = buffer_read(data->clientBuffer);
+    size_t readLimit;
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &readLimit);
+    if (readLimit < AUTH_METHODS_START) { // Se necesitan al menos 2 bytes para la versión y el método de autenticación
+        log(ERROR, "Insufficient data received for authentication");
+        return HELLO_READ; // Esperar más datos
+    }
+
+
+
+    const uint8_t socksVersion = ptr[0];
+    const uint8_t totalAuthMethods = ptr[1];
+    if (readLimit < AUTH_METHODS_START + totalAuthMethods) { // Chequear que se recibieron todos los métodos de autenticación
+        log(ERROR, "Insufficient data received for authentication methods");
+        return HELLO_READ; // Esperar más datos
+    }
+    buffer_read_adv(data->clientBuffer, AUTH_METHODS_START);
     if( socksVersion == SOCKS_VERSION ){
         bool clientAcceptsNoAuth = false;
         //chequea que sea SOCKS5
@@ -43,9 +69,12 @@ unsigned handleHelloRead(struct selector_key *key) {
             const int authMethod = buffer_read(data->clientBuffer); // Lee el método de autenticación
             if(authMethod == AUTH_METHOD_PASSWORD){
 			    data->authMethod = AUTH_METHOD_PASSWORD;
-                selector_set_interest_key(key, OP_WRITE);
+                if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {;
+                    log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+                    return ERROR_CLIENT;
+                }
                 buffer_reset(data->clientBuffer);
-                return HELLO_WRITE; // Cambiar al estado de escritura de saludo
+                return attemptHelloWrite(key); // Cambiar al estado de escritura de saludo
             }
             if (authMethod == AUTH_METHOD_NOAUTH) {
                 clientAcceptsNoAuth = true; // Si acepta autenticación sin contraseña
@@ -54,56 +83,55 @@ unsigned handleHelloRead(struct selector_key *key) {
         if (socksArgs->serverAcceptsNoAuth && clientAcceptsNoAuth) {
             data->authMethod = AUTH_METHOD_NOAUTH;
             buffer_reset(data->clientBuffer);
-            selector_set_interest_key(key, OP_WRITE);
-            return HELLO_WRITE; // Cambiar al estado de escritura de saludo
+            if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {;
+                log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+                return ERROR_CLIENT;
+            }
+            return attemptHelloWrite(key); // Cambiar al estado de escritura de saludo
         }
         log(ERROR, "Unsupported authentication method or incomplete data");
         add_new_login_error();
         data->authMethod = NO_ACCEPTABLE_METHODS;
         selector_set_interest_key(key, OP_WRITE); // Cambiar interés a escritura para enviar error
-        return HELLO_WRITE;
+        return attemptHelloWrite(key);
     }
     return ERROR_CLIENT;
-
-
 }
+
 unsigned handleHelloWrite(struct selector_key *key) {
-    const int clntSocket = key->fd; // Socket del cliente
     const clientData *data = key->data;
-
-    // Enviar respuesta de saludo al cliente
-    const uint8_t response[2] = {SOCKS_VERSION, data->authMethod}; // Respuesta de saludo con autenticación no requerida
-    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), 0);
-    if (numBytesSent < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) { //FIXME: recordar cuantos bytes se enviaron
-            // No se pudo enviar por ahora, volver a intentar más tarde
-            return HELLO_WRITE;
+    const unsigned toReturn = genericWrite(key,data->authMethod == AUTH_METHOD_NOAUTH ? REQUEST_READ : AUTH_READ , HELLO_WRITE);
+    if (toReturn == REQUEST_READ || toReturn == AUTH_READ) {
+        if (selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+            return ERROR_CLIENT; // Error al cambiar el interés a lectura
         }
-        log(ERROR, "send() failed on client socket %d", clntSocket);
-        return ERROR_CLIENT;
     }
-    if (numBytesSent == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
-        return DONE;
-    }
-        // Mensaje enviado correctamente, desregistrar el interés de escritura
-    if ( sizeof(response) == numBytesSent) {
-        selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir autenticación
-        if (data->authMethod == AUTH_METHOD_NOAUTH) {
-            log(INFO, "No authentication required, moving to request read state");
-            metrics_new_connection();
-            return REQUEST_READ; // Si no se requiere autenticación, pasar al estado de lectura de solicitud
-        }
-        if (data->authMethod == AUTH_METHOD_PASSWORD) {
-            log(INFO, "Selected authentication method: Password, moving to auth method subnegotiation");
-            return AUTH_READ;
-        }
+    return toReturn; // Retorna el estado al que se debe cambiar
+}
 
-        log(INFO, "No acceptable method for auth, moving back to hello read");
-        return HELLO_READ;
-
+unsigned attemptAuthWrite(struct selector_key *key) {
+    clientData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, SOCKS_VERSION); // Versión del protocolo SOCKS
+    bool success=0;
+    for (int i=0; i < MAX_USERS && socksArgs->users[i].name != NULL; i++) {
+        if (strcmp(socksArgs->users[i].name, data->authInfo.username) == 0 &&
+            strcmp(socksArgs->users[i].pass, data->authInfo.password) == 0) {
+            data->isAnonymous = 0;
+            success =1;
+            metrics_new_connection(); // Actualiza las métricas por nueva conexión
+            break; // Salir del bucle si la autenticación es exitosa
+            }
     }
-    return HELLO_WRITE; // Mantener el estado de escritura de saludo
+    if (success) {
+        buffer_write(data->clientBuffer,  AUTH_SUCCESS); // Autenticación exitosa
+    } else {
+        add_new_login_error();
+        buffer_write(data->clientBuffer, AUTH_FAILURE); // Autenticación fallida
+    }
+
+
+    return handleAuthWrite(key); // Manejar la escritura de autenticación
 }
 
 unsigned handleAuthRead(struct selector_key *key) {
@@ -112,8 +140,7 @@ unsigned handleAuthRead(struct selector_key *key) {
     clientData *data = key->data;
     size_t writeLimit;
     uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT;
@@ -122,122 +149,76 @@ unsigned handleAuthRead(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection ACA", clntSocket);
         return DONE;
     }
-    int usernameLength = 0; // Longitud del nombre de usuario
-    const uint8_t authVersion = buffer_read(data->clientBuffer);
+    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+
+    size_t readLimit;
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &readLimit);
+    if (readLimit < USERNAME_START) { // Se necesitan al menos 2 bytes para la versión y el método de autenticación
+        log(ERROR, "Insufficient data received for authentication");
+        return AUTH_READ; // Esperar más datos
+    }
+    const uint8_t authVersion = ptr[0]; // Leer la versión de autenticación
+    const uint8_t usernameLength  = ptr[1];
+
 
     if (authVersion != SUBNEGOTIATION_VERSION) {
         // Si no es SOCKS_VERSION o no tengo suficientes bytes, error
         log(ERROR, "Unsupported authentication method or incomplete data");
         return ERROR_CLIENT;
     }
-    numBytesRcvd--;
-    usernameLength = buffer_read(data->clientBuffer);
     if (usernameLength <= 0 || usernameLength > MAX_USERNAME_LEN) { // Chequear longitud del nombre de usuario
         log(ERROR, "Invalid username length: %d", usernameLength);
         return ERROR_CLIENT;
     }
-    numBytesRcvd--;
-    numBytesRcvd -= usernameLength;
 
-    if (numBytesRcvd < 0) { // Si no tengo suficientes bytes para el nombre de usuario
+    if (readLimit < (size_t)usernameLength + USERNAME_START + PASSWORD_START) { // Si no tengo suficientes bytes para el nombre de usuario
         log(ERROR, "Insufficient data received for username");
         return AUTH_READ;
     }
-
-    strncpy( data->authInfo.username, (char *) data->clientBuffer->read, usernameLength); // Copio el nombre de usuario al buffer
-    buffer_read_adv(data->clientBuffer, usernameLength); // Avanzo el puntero de lectura del buffer
-    data->authInfo.username[usernameLength] = '\0'; // Asegurar que el nombre de usuario esté terminado en nulo
-
-    const int passwordLength = buffer_read(data->clientBuffer);
+    const uint8_t passwordLength = ptr[ USERNAME_START + usernameLength]; // Leer la longitud de la contraseña
     if (passwordLength <= 0 || passwordLength > MAX_PASSWORD_LEN) { // Chequear longitud de la contraseña
         log(ERROR, "Invalid password length: %d", passwordLength);
         return ERROR_CLIENT;
     }
-    numBytesRcvd--;
-    numBytesRcvd -= passwordLength;
 
-    if (numBytesRcvd < 0) { // Si no tengo suficientes bytes para la contraseña
+    if (readLimit < USERNAME_START + (size_t)passwordLength + usernameLength + PASSWORD_START ) { // Si no tengo suficientes bytes para la contraseña
         log(ERROR, "Insufficient data received for password");
         return AUTH_READ;
     }
 
-    strncpy( data->authInfo.password,(char *) data->clientBuffer->read, passwordLength); // Copio el nombre de usuario al buffer
+    buffer_read_adv(data->clientBuffer, USERNAME_START); // authVersion + usernameLength
+
+    strncpy( data->authInfo.username, (char*)buffer_read_ptr(data->clientBuffer,&readLimit), usernameLength); // Copio el nombre de usuario al buffer
+    buffer_read_adv(data->clientBuffer, usernameLength); // Avanzo el puntero de lectura del buffer
+    data->authInfo.username[usernameLength] = '\0'; // Asegurar que el nombre de usuario esté terminado en nulo
+
+    buffer_read_adv(data->clientBuffer, PASSWORD_START); // authVersion + usernameLength
+
+    strncpy( data->authInfo.password,(char *) buffer_read_ptr(data->clientBuffer,&readLimit), passwordLength); // Copio el nombre de usuario al buffer
     buffer_read_adv(data->clientBuffer, passwordLength);// Avanzo el offset del buffer
     data->authInfo.password[passwordLength] = '\0'; // Asegurar que la contraseña esté terminada en nulo
-    selector_set_interest_key(key, OP_WRITE);
-    return AUTH_WRITE; // Cambiar al estado de escritura de autenticación
-
-//    if( authVersion == SUBNEGOTIATION_VERSION && numBytesRcvd >= 2) { // Si el metodo de autenticacion es password y tengo al menos 2 bytes TODO magic nums
-//        usernameLength = buffer_read(data->clientBuffer); // Longitud del nombre de usuario
-//    } else {
-//        // Si no es SOCKS_VERSION o no tengo suficientes bytes, error
-//        log(ERROR, "Unsupported authentication method or incomplete data");
-//        return ERROR_CLIENT;
-//    }
-//    if(numBytesRcvd < usernameLength + 2) { // Si no tengo suficientes bytes para el nombre de usuario
-//        return AUTH_READ;
-//    }
-//    strncpy( data->authInfo.username, (char *) data->clientBuffer->read, usernameLength); // Copio el nombre de usuario al buffer
-//    buffer_read_adv(data->clientBuffer, usernameLength); // Avanzo el puntero de lectura del buffer
-//    data->authInfo.username[usernameLength] = '\0'; // Asegurar que el nombre de usuario esté terminado en nulo
-//
-//    const int passwordLength = buffer_read(data->clientBuffer); // TODO: faltan chequeos de errores
-//
-//    if( false ) { // TODO: este chequeo
-//        return AUTH_READ; // TODO definir codigos de error
-//    }
-//    strncpy( data->authInfo.password,(char *) data->clientBuffer->read, passwordLength); // Copio el nombre de usuario al buffer
-//    buffer_read_adv(data->clientBuffer, passwordLength);// Avanzo el offset del buffer
-//    data->authInfo.password[passwordLength] = '\0'; // Asegurar que la contraseña esté terminada en nulo
-//    selector_set_interest_key(key, OP_WRITE); // TODO: devuelve estado, chequear
-//    return AUTH_WRITE; // Cambiar al estado de escritura de autenticación
+     if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+         log(ERROR, "Failed to set interest for client socket %d", clntSocket);
+         return ERROR_CLIENT;
+     }
+    return attemptAuthWrite(key); // Cambiar al estado de escritura de autenticación
 }
 
+
 unsigned handleAuthWrite(struct selector_key *key) {
-    const int clntSocket = key->fd; // Socket del cliente
-    clientData *data =  key->data;
+    clientData *data = key->data;
 
-    // Enviar respuesta de autenticación al cliente
-    char response[2] = {SOCKS_VERSION, AUTH_FAILURE}; // Respuesta de autenticación exitosa
-    for (int i=0; i < MAX_USERS && socksArgs->users[i].name != NULL; i++) {
-        if (strcmp(socksArgs->users[i].name, data->authInfo.username) == 0 &&
-            strcmp(socksArgs->users[i].pass, data->authInfo.password) == 0) {
-            response[1] = AUTH_SUCCESS; // Autenticación exitosa
-            log(INFO, "Authentication successful for user: %s", data->authInfo.username);
-            data->isAnonymous = 0;
-            metrics_new_connection(); // Actualiza las métricas por nueva conexión
-            break; // Salir del bucle si la autenticación es exitosa
-            }
+    const unsigned next_state = genericWrite(key,  REQUEST_READ,AUTH_WRITE);
+    if (next_state == AUTH_WRITE) {
+        data->current_user_conn.access_time = time(NULL);
+        return AUTH_WRITE;
     }
-
-    const ssize_t numBytesSent = send(clntSocket, response, sizeof(response), 0);
-
-    if (numBytesSent < 0) {
-        if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            // No se pudo enviar por ahora, volver a intentar más tarde
-            return AUTH_WRITE;
+    if (next_state == REQUEST_READ) {
+        if ( selector_set_interest_key(key, OP_READ) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", key->fd);
+            return ERROR_CLIENT; // Error al cambiar el interés a lectura
         }
-        log(ERROR, "send() failed on client socket %d", clntSocket);
+    }
+    return next_state;
 
-        return ERROR_CLIENT;
-    }
-    if (numBytesSent == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
-        return DONE;
-    }
-
-    if( response[1] != AUTH_SUCCESS) { // Si la autenticación falló
-        log(ERROR, "Authentication failed for client socket %d", clntSocket);
-        add_new_login_error();
-        return ERROR_CLIENT;
-    }
-    if (sizeof(response) == numBytesSent) {
-        selector_set_interest_key(key, OP_READ); // Cambiar interés a lectura para recibir solicitud
-        log(INFO, "Sent authentication response to client socket %d", clntSocket);
-        return REQUEST_READ;
-    }
-    buffer_read_adv(data->clientBuffer, numBytesSent);
-    data->current_user_conn.access_time = time(NULL);
-
-    return AUTH_WRITE;
 }

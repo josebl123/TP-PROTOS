@@ -21,15 +21,13 @@
 #define STATS_STATUS_OK      0x00
 
 int tcpClientSocket(const char *host, const char *service) {
-    char addrBuffer[MAX_ADDR_BUFFER];
-    struct addrinfo addrCriteria;
-    memset(&addrCriteria, 0, sizeof(addrCriteria));
+    struct addrinfo addrCriteria = {0};
     addrCriteria.ai_family = AF_UNSPEC;
     addrCriteria.ai_socktype = SOCK_STREAM;
     addrCriteria.ai_protocol = IPPROTO_TCP;
 
     struct addrinfo *servAddr;
-    int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
+    const int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
     if (rtnVal != 0) {
         log(ERROR, "getaddrinfo() failed %s", gai_strerror(rtnVal));
         return -1;
@@ -45,6 +43,7 @@ int tcpClientSocket(const char *host, const char *service) {
                 sock = -1;
             }
         } else {
+            char addrBuffer[MAX_ADDR_BUFFER];
             log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer));
         }
     }
@@ -61,7 +60,7 @@ void client_close(struct selector_key *key) {
 }
 
 void client_read(struct selector_key *key) {
-    clientData *data = key->data;
+    const clientData *data = key->data;
     stm_handler_read(data->stm, key);
 }
 
@@ -74,26 +73,22 @@ void failure_response_print(int response) {
 }
 
 void client_write(struct selector_key *key) {
-    clientData *data = key->data;
+    const clientData *data = key->data;
     stm_handler_write(data->stm, key);
 }
 
-// void client_block(struct selector_key *key) {
-//     log(INFO, "Blocking client socket %d", key->fd);
-// }
-
 unsigned int handleStatsRead(struct selector_key *key) {
-    clientData *data = (clientData *) key->data;
+    const clientData *data =key->data;
     buffer *buf = data->clientBuffer;
 
     size_t available;
-    uint8_t *read_ptr = buffer_read_ptr(buf, &available);
+    const uint8_t *read_ptr = buffer_read_ptr(buf, &available);
 
     // Paso 1: leer header (3) + longitud (4)
     if (available < STATS_TOTAL_HEADER) {
         size_t space;
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
-        ssize_t received = recv(key->fd, write_ptr, space, 0);
+        const ssize_t received = recv(key->fd, write_ptr, space, 0);
         if (received <= 0) {
             if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
                 log(ERROR, "Connection closed or error while receiving stats header/length");
@@ -136,7 +131,7 @@ unsigned int handleStatsRead(struct selector_key *key) {
     if (available < STATS_TOTAL_HEADER + body_len) {
         size_t space;
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
-        ssize_t received = recv(key->fd, write_ptr, space, 0);
+        const ssize_t received = recv(key->fd, write_ptr, space, 0);
         if (received <= 0) {
             if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
                 log(ERROR, "Connection closed or error while receiving stats body");
