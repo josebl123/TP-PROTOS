@@ -34,7 +34,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
             {"no-auth",     no_argument,        NULL, 'n'},
             {"no-no-auth", no_argument, NULL, 'N'},
             {"global-metrics", no_argument, NULL, 'G'},
-            {"own-user-metrics", no_argument, NULL, 'g'},
+            // {"own-user-metrics", no_argument, NULL, 'g'},
             {"specific-metrics", required_argument, NULL, 's'},
             {"port",        required_argument,  NULL, 'p'},
             {"address",     required_argument,  NULL, 'a'},
@@ -46,13 +46,15 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     };
 
     int ch;
-    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:gs:NG", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:s:NG", longopts, NULL)) != -1) {
         switch (ch) {
             case 'b':
                 bufsize = atoi(optarg);
+                args->flag = "b";
                 break;
             case 'n':
                 no_auth = 1;
+                args->flag = "n";
                 break;
             case 'u': {
                 char *sep = strchr(optarg, ':');
@@ -67,13 +69,16 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                     fprintf(stderr, "Invalid --add-user argument, user and password must not be empty\n");
                     exit(EXIT_FAILURE);
                 }
+                args->flag = "u";
                 break;
             }
             case 'r':
                 remove_user = optarg;
+                args->flag = "r";
                 break;
             case 'm':
                 make_admin = optarg;
+                args->flag = "m";
                 break;
             case 'l': {
                 // expect optarg == "user:password"
@@ -85,6 +90,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 *sep = '\0';
                 login_user = optarg;
                 login_pass = sep + 1;
+                args->flag = "l";
                 break;
             }
             case 'p':
@@ -93,6 +99,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                     fprintf(stderr, "Invalid port: %s\n", optarg);
                     exit(EXIT_FAILURE);
                 }
+                args->flag = "p";
                 break;
             case 'a':
                 addr = optarg;
@@ -100,12 +107,11 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                     fprintf(stderr, "Invalid address: %s\n", optarg);
                     exit(EXIT_FAILURE);
                 }
-                break;
-            case 'g':
-                own_user_metrics = 1; // Enable global metrics
+                args->flag = "a";
                 break;
             case 'G':
                 global_metrics = 1; // Enable global metrics
+                args->flag = "G";
                 break;
             case 's':
                 specific_metrics_user = optarg; // User for specific metrics, not used in this context
@@ -113,13 +119,16 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                     fprintf(stderr, "Invalid user for specific metrics: %s\n", optarg);
                     exit(EXIT_FAILURE);
                 }
+                args->flag = "s";
                 break;
             case 'N':
                 no_no_auth = 1; // Flag for no authentication, not used in this context
+                args->flag = "N";
                 break;
             default:
                 fprintf(stderr,
                         "Usage: %s [options]\n"
+                        " If no option is given, the client will receive their own user metrics.\n"
                         "  -b, --buffer-size <n>\n"
                         "  -n, --no-auth\n"
                         "  -N, --no-no-auth\n"
@@ -130,7 +139,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                         "  -p, --port <port>\n"
                         "  -a, --address <addr>\n"
                         "  -G, --global-metrics\n"
-                        "  -g, --own-user-metrics\n"
                         "  -s, --specific-metrics <user>\n",
                         argv[0]);
                 exit(EXIT_FAILURE);
@@ -141,6 +149,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         fprintf(stderr,
                 "Error: --login <user:pass> is required.\n\n"
                 "Usage: %s [options]\n"
+                " If no option is given, the client will receive their own user metrics.\n"
                 "  -b, --buffer-size <n>\n"
                 "  -n, --no-auth\n"
                 "  -N, --no-no-auth\n"
@@ -151,7 +160,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -p, --port <port>\n"
                 "  -a, --address <addr>\n"
                 "  -G, --global-metrics\n"
-                "  -g, --own-user-metrics\n"
                 "  -s, --specific-metrics <user>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
@@ -163,6 +171,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     if (!addr) {
         fprintf(stderr, "Error: --address <addr> is required.\n\n"
                 "Usage: %s [options]\n"
+                " If no option is given, the client will receive their own user metrics.\n"
                 "  -b, --buffer-size <n>\n"
                 "  -n, --no-auth\n"
                 "  -N, --no-no-auth\n"
@@ -173,7 +182,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -p, --port <port>\n"
                 "  -a, --address <addr>\n"
                 "  -G, --global-metrics\n"
-                "  -g, --own-user-metrics\n"
                 "  -s, --specific-metrics <user>\n",
                 argv[0]);
         exit(EXIT_FAILURE);
@@ -210,10 +218,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     } else if (global_metrics ) {
         args->stats = true; // Enable global metrics
     }
-    else if (own_user_metrics) {
-        args->stats = true; // Enable specific user metrics
-        args->target_user = args->username; // Set the target user for specific metrics
-    }
     else if (specific_metrics_user) {
         args->stats = true; // Enable specific user metrics
         args->target_user = specific_metrics_user; // Set the target user for specific metrics
@@ -221,23 +225,12 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->stats = false; // Disable stats for no authentication
         args->accepts_no_auth = false; // Disable accepting no authentication
         args->type = ACCEPTS_NO_AUTH; // Set the type to ACCEPTS_NO_AUTH
-    } else {
-            fprintf(stderr, "Error: No valid options provided.\n"
-            "Usage: %s [options]\n"
-                    "  -b, --buffer-size <n>\n"
-                    "  -n, --no-auth\n"
-                    "  -N, --no-no-auth\n"
-                    "  -u, --add-user <user>\n"
-                    "  -r, --remove-user <user>\n"
-                    "  -m, --make-admin <user>\n"
-                    "  -l, --login <user:pass>   (required)\n"
-                    "  -p, --port <port>\n"
-                    "  -a, --address <addr>\n"
-                    "  -G, --global-metrics\n"
-                    "  -g, --own-user-metrics\n"
-                    "  -s, --specific-metrics <user>\n",
-                    argv[0]);
-            exit(EXIT_FAILURE);
+    }
+    else {
+        own_user_metrics = 1;
+        args->flag = "default";
+        args->stats = true;
+        args->target_user = args->username;
     }
 
 }

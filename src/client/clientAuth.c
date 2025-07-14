@@ -62,6 +62,10 @@ unsigned handleAuthRead(struct selector_key *key){
         return ERROR_CLIENT;
     }
     if (role == ROLE_USER) {
+        if (data->args->flag == NULL || strcmp(data->args->flag, "default") != 0) {
+            printf("### Unauthorized\n");
+            return ERROR_CLIENT;
+        }
         selector_set_interest_key(key, OP_READ);
         printf("## Authentication successful for user role\n");
         return STATS_READ;

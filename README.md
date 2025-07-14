@@ -142,11 +142,14 @@ VERSION RSV CODE STATUS
 
 - `--login user:pass` → login como USER o ADMIN
 
-### Flags de métrica
+### Flags de métrica (requiere ser ADMIN)
+
+- Si no se especifican flags, se obtienen métricas de usuario propias.
+
 
 | Flag        | Descripción                               |
 |-------------|-------------------------------------------|
-| `-g`        | Métricas globales                         |
+| `-G`        | Métricas globales                         |
 | `-s <user>` | Métricas específicas de usuario           |
 
 ### Flags de configuración (requiere ser ADMIN)
