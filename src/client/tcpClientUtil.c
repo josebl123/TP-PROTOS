@@ -163,11 +163,11 @@ unsigned int handleStatsRead(struct selector_key *key) {
 
 void handleClientClose(const unsigned state, struct selector_key *key) {
     clientData *data = key->data;
+    selector_destroy(key->s);
     free(data->stm);
     free(data->clientBuffer->data);
     free(data->clientBuffer);
     free(data);
-    selector_destroy(key->s);
     close(key->fd);
     exit(state == DONE ? 0 : 1);
 }
