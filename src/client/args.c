@@ -41,11 +41,12 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
             {"remove-user", required_argument,  NULL, 'r'},
             {"make-admin",  required_argument,  NULL, 'm'},
             {"login",       required_argument,  NULL, 'l'},
+            {"help", no_argument, NULL, 'h'},
             {0,0,0,0}
     };
 
     int ch;
-    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:s:NG", longopts, NULL)) != -1) {
+    while ((ch = getopt_long(argc, argv, "b:na:u:r:m:l:p:a:s:NGh", longopts, NULL)) != -1) {
         switch (ch) {
             case 'b':
                 bufsize = atoi(optarg);
@@ -124,6 +125,23 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 no_no_auth = 1; // Flag for no authentication, not used in this context
                 args->flag = "N";
                 break;
+            // En el switch:
+            case 'h':
+                printf("Usage: %s [options]\n"
+                       "  -b, --buffer-size <n>\n"
+                       "  -n, --no-auth\n"
+                       "  -N, --no-no-auth\n"
+                       "  -u, --add-user <user:pass>\n"
+                       "  -r, --remove-user <user>\n"
+                       "  -m, --make-admin <user>\n"
+                       "  -l, --login <user:pass>   (requerido)\n"
+                       "  -p, --port <port>\n"
+                       "  -a, --address <addr>\n"
+                       "  -G, --global-metrics\n"
+                       "  -s, --specific-metrics <user>\n"
+                       "  -h, --help\n",
+                       argv[0]);
+                exit(EXIT_SUCCESS);
             default:
                 fprintf(stderr,
                         "Usage: %s [options]\n"
@@ -138,7 +156,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                         "  -p, --port <port>\n"
                         "  -a, --address <addr>\n"
                         "  -G, --global-metrics\n"
-                        "  -s, --specific-metrics <user>\n",
+                        "  -s, --specific-metrics <user>\n"
+                        "  -h, --help\n",
                         argv[0]);
                 exit(EXIT_FAILURE);
         }
@@ -159,7 +178,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -p, --port <port>\n"
                 "  -a, --address <addr>\n"
                 "  -G, --global-metrics\n"
-                "  -s, --specific-metrics <user>\n",
+                "  -s, --specific-metrics <user>\n"
+                "  -h, --help\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -181,7 +201,8 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
                 "  -p, --port <port>\n"
                 "  -a, --address <addr>\n"
                 "  -G, --global-metrics\n"
-                "  -s, --specific-metrics <user>\n",
+                "  -s, --specific-metrics <user>\n"
+                "  -h, --help\n",
                 argv[0]);
         exit(EXIT_FAILURE);
     }
@@ -199,7 +220,7 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->type = ACCEPTS_NO_AUTH;
     } else if (add_user) {
         if (strcmp(add_user, ANONYMOUS_USER) == 0) {
-            fprintf(stderr, "El nombre de usuario 'anonymous' está reservado y no puede ser utilizado.\n");
+            fprintf(stderr, "Username 'anonymous' is a reserved username, please choose a different one..\n");
             exit(EXIT_FAILURE);
         }
         args->stats = false;

@@ -26,7 +26,7 @@ struct clientArgs {
       BUFFER_SIZE, // Size of the buffer to use for reading/writing
       ACCEPTS_NO_AUTH, // If the client accepts no authentication
       ADD_USER,
-       REMOVE_USER, // If the client removes a user
+      REMOVE_USER, // If the client removes a user
       MAKE_ADMIN, // If the client adds an admin
     } type;
 
