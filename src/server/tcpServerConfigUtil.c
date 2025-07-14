@@ -48,7 +48,7 @@ unsigned send_auth_fail(struct selector_key *key) {
     buffer_write(data->clientBuffer, RSV);
     buffer_write(data->clientBuffer, data->response_code);
 
-    const size_t availableBytes;
+    size_t availableBytes;
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
     const ssize_t sent = send(clntSocket, ptr, availableBytes, 0);
     if (sent < 0) {

@@ -98,7 +98,7 @@ unsigned handleAuthWrite(struct selector_key *key){
 
     int totalLength = AUTH_REQ_USERNAME_OFFSET + usernameLength + 1 + passwordLength;
 
-    char *response = malloc(totalLength);
+    uint8_t *response = malloc(totalLength);
     if (response == NULL) {
         log(ERROR, "Memory allocation failed");
         return ERROR_CLIENT;

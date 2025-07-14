@@ -18,7 +18,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
     int   no_auth     = 0;
     int   no_no_auth = 0; // Flag for no authentication, not used in this context
     int   global_metrics = 0; // Flag for global metrics
-    int  own_user_metrics = 0; // Flag for specific metrics, not used in this context
     char *specific_metrics_user = NULL; // User for specific metrics, not used in this context
     char *port        = "8080"; // Default port, not used in this context
     char *addr        = "127.0.0.1";
@@ -227,7 +226,6 @@ parse_client_args(const int argc, char** argv, struct clientArgs* args){
         args->type = ACCEPTS_NO_AUTH; // Set the type to ACCEPTS_NO_AUTH
     }
     else {
-        own_user_metrics = 1;
         args->flag = "default";
         args->stats = true;
         args->target_user = args->username;

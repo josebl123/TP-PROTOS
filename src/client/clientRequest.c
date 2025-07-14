@@ -8,12 +8,8 @@
 #include <sys/socket.h>
 #include <netdb.h>
 #include "logger.h"
-#include "util.h"
 #include "selector.h"
-#include "tcpClientUtil.h"
-#include "clientAuth.h"
 #include "args.h"
-#include "logger.h"
 #include "client.h"
 #include "clientConfig.h"
 
@@ -71,10 +67,10 @@ unsigned handleRequestWrite(struct selector_key *key) {
     clientData *data = key->data;
     int clntSocket = key->fd;
 
-    int usernameLength = data->args->target_user ? strlen(data->args->target_user) : 0;
+    unsigned long usernameLength = data->args->target_user ? strlen(data->args->target_user) : 0;
     int totalLength = HEADER_LENGTH + usernameLength + 1; // +1 por el null terminator
 
-    char *response = malloc(totalLength);
+    uint8_t *response = malloc(totalLength);
     if (response == NULL) {
         log(ERROR, "Memory allocation failed for response buffer");
         return ERROR_CLIENT;

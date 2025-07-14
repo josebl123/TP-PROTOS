@@ -94,8 +94,6 @@ void clientClose(const unsigned state, struct selector_key *key) {
     } else {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
-    clientData *data =  key->data;
-    // data->current_user_conn.status = 0; //TODO: NOT MAGIC NUMBERS
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
