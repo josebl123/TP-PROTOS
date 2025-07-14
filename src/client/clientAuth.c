@@ -85,6 +85,26 @@ unsigned handleAuthRead(clientData *data) {
 
     return ERROR_CLIENT;
 }
+unsigned handleAuthConfigSend(clientData *data, uint8_t *response, size_t responseSize) {
+
+    ssize_t bytesSent = send(clntSocket, response, responseSize, 0);
+    if (bytesSent < 0) {
+        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+        free(response);
+        return ERROR_CLIENT;
+    }
+    if (bytesSent == 0) {
+        free(response);
+        return DONE; // Connection closed
+    }
+
+    if ((size_t)bytesSent < responseSize) {
+        return handleAuthConfigSend(data, response + bytesSent, responseSize - bytesSent); // Partial send, wait for next write
+    }
+
+    free(response);
+    return handleAuthRead(data);
+}
 
 unsigned handleAuthWrite(clientData *data) {
 
@@ -113,18 +133,5 @@ unsigned handleAuthWrite(clientData *data) {
     response[offset++] = passwordLength;
     memcpy(response + offset, data->args->password, passwordLength);
 
-    ssize_t sent = send(clntSocket, response, totalLength, 0);
-    if (sent < 0) {
-        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
-        free(response);
-        return ERROR_CLIENT;
-    }
-    if (sent == 0) {
-        free(response);
-        return DONE;
-    }
-
-    free(response);
-
-    return handleAuthRead(data);
+   return handleAuthConfigSend(data, response, totalLength);
 }

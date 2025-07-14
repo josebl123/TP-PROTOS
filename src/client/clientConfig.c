@@ -124,6 +124,21 @@ unsigned handleConfigRead(clientData *data) {
             return DONE;
     }
   }
+  unsigned handleConfigSend(clientData *data, char *response, size_t responseSize) {
+
+    ssize_t bytesSent = send(clntSocket, response, responseSize, 0);
+    if (bytesSent < 0) {
+        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+        return ERROR_CLIENT;
+    }
+    if (bytesSent == 0) {
+        return DONE; // Connection closed
+    }
+    if((size_t)bytesSent < responseSize) {
+        return handleConfigSend(data, response + bytesSent, responseSize - bytesSent); // Partial send, wait for next write
+    }
+    return handleConfigRead(data);
+ }
 
 unsigned handleConfigWrite(clientData *data) {
 
@@ -189,18 +204,7 @@ unsigned handleConfigWrite(clientData *data) {
             log(ERROR, "Unknown configuration option: %d", data->args->type);
             return ERROR_CLIENT;
     }
-    ssize_t sent = send(clntSocket, response, responseSize, 0);
-    if (sent < 0) {
-        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
-        free(response);
-        return ERROR_CLIENT;
-    }
-    if (sent == 0) {
-        free(response);
-        return DONE;
-    }
-    free(response);
-    return handleConfigRead(data);
+    return handleConfigSend(data, response, responseSize);
 }
 
 

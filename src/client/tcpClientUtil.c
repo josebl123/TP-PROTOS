@@ -89,7 +89,7 @@ unsigned handleStatsRead(clientData * data) {
             return ERROR_CLIENT;
         }
         buffer_write_adv(buf, received);
-       return  handleStatsRead(data);
+        return handleStatsRead(data);
     }
     int offset = 0;
     // Header
