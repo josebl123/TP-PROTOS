@@ -266,7 +266,7 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
             return ERROR_CONFIG_CLIENT;
         }
         return attempt_send_bad_request_error(key);    }
-    if (readAvailable < ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
+    if (readAvailable < (size_t)ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
         return ADMIN_ADD_USER_READ; // No hay suficientes bytes para el nombre de usuario
     }
 
@@ -279,7 +279,7 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
         }
         return attempt_send_bad_request_error(key);
     }
-    if (readAvailable < ulen + 1 + passlen + 1) {
+    if (readAvailable < (size_t)ulen + 1 + (size_t)passlen + 1) {
         return ADMIN_ADD_USER_READ;
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
@@ -350,7 +350,7 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         }
         return attempt_send_bad_request_error(key);
     }
-    if (readAvailable < ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
+    if (readAvailable < (size_t)ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
         return ADMIN_REMOVE_USER_READ; // No hay suficientes bytes para el nombre de usuario
     }
 

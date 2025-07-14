@@ -22,7 +22,7 @@ unsigned connectWrite(struct selector_key * key) {
 
     int error =0;
     socklen_t len = sizeof(error);
-    clock_gettime(CLOCK_MONOTONIC, & data->client->last_activity);
+    clock_gettime(CLOCK_MONOTONIC, & data->last_activity);
     if ( getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
         log(ERROR, "getsockopt() failed: %s", strerror(errno));
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
