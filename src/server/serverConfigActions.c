@@ -198,7 +198,6 @@ unsigned genericWrite(struct selector_key * key, unsigned next_state, unsigned c
         return current_state; // No se envió todo, intenta de nuevo
     }
     buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
-    log(INFO, "Buffer size changed to %u", bufferSize);
 
     return next_state;
 }

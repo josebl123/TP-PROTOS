@@ -29,7 +29,7 @@ unsigned send_bad_request(struct selector_key * key) {
 }
 
 unsigned attempt_send_bad_request_error(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
 
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
@@ -40,7 +40,7 @@ unsigned attempt_send_bad_request_error(struct selector_key *key) {
 }
 
 unsigned send_auth_fail(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
     buffer_reset(data->clientBuffer);
@@ -92,7 +92,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
 
     if (data->role == ROLE_INVALID) {
         log(ERROR, "Authentication failed for client socket %d", clntSocket);
-        return  send_auth_fail(key);
+        return send_auth_fail(key);
     }
 
     if (data->role != ROLE_ADMIN) {
