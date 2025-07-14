@@ -87,11 +87,6 @@ int main(int argc, char** argv) {
       .handle_close = client_close,
   }, OP_WRITE, data);
 
-  if (selector_fd_set_nio(socket) == -1) {
-    close(socket);
-    perror("Failed to set master socket to non-blocking mode");
-    exit(EXIT_FAILURE);
-  } // para que no bloquee
   while( TRUE){
     const int activity = selector_select(selector);
 

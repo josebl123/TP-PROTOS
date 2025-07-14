@@ -314,7 +314,7 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
         return attempt_send_bad_request_error(key);
     }
 
-    if (readAvailable < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
+    if (readAvailable < 4 + (size_t)ulen) return ADMIN_INITIAL_REQUEST_READ;
     buffer_read_adv(data->clientBuffer, 4);
 
     char username[MAX_USERNAME_LEN + 1] = {0};

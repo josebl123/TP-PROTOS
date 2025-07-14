@@ -90,11 +90,11 @@ unsigned int handleStatsRead(struct selector_key *key) {
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
         const ssize_t received = recv(key->fd, write_ptr, space, 0);
         if (received <= 0) {
-            if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+            if (received == 0) {
                 log(ERROR, "Connection closed or error while receiving stats header/length");
-                return ERROR_CLIENT;
+                return DONE;
             }
-            return STATS_READ;
+            return ERROR_CLIENT;
         }
         buffer_write_adv(buf, received);
         return STATS_READ;
@@ -133,11 +133,11 @@ unsigned int handleStatsRead(struct selector_key *key) {
         uint8_t *write_ptr = buffer_write_ptr(buf, &space);
         const ssize_t received = recv(key->fd, write_ptr, space, 0);
         if (received <= 0) {
-            if (received == 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
+            if (received == 0 ) {
                 log(ERROR, "Connection closed or error while receiving stats body");
-                return ERROR_CLIENT;
+                return DONE;
             }
-            return STATS_READ;
+            return ERROR_CLIENT;
         }
         buffer_write_adv(buf, received);
         return STATS_READ;
