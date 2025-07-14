@@ -39,31 +39,43 @@ unsigned connectWrite(struct selector_key * key) {
         if ( getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
             log(ERROR, "getsockopt() failed: %s", strerror(errno));
             data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-            data->client->addressResolved = 1; // Indicate that the callback is not ready
-            if (data->client->destination.addressType == DOMAINNAME && selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
-                log(ERROR, "Failed to notify selector for client socket %d", key->fd);
-            }else if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
-                log(ERROR, "Failed to set interest for client socket %d", key->fd);
-            }
-            return RELAY_ERROR; // Change to the relay error state
+//            data->client->addressResolved = 1; // Indicate that the callback is not ready
+//            if (data->client->destination.addressType == DOMAINNAME) {
+//                if (selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
+//                    log(ERROR, "Failed to notify selector for client socket %d", key->fd);
+//                }
+//                log(ERROR, "Failed to notify selector for client socket %d", key->fd);
+//            }else {
+//                if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
+//                    log(ERROR, "Failed to set interest for client socket %d", key->fd);
+//                }
+//            }
+            return sendFailureResponseRemote(key); // Change to the relay error state
         }
 
         if (error != 0) {
             setResponseStatus(data->client, error);
             if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
-                log(ERROR, "Failed to set interest for remote socket %d", key->fd); //todo selector failure, may god have mercy on our souls
-            }                                                                       //todo this is a mess because would need to unregister client fd, which in turn unregisters remote fd
-            if (data->client->destination.addressType == DOMAINNAME && selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
-                log(ERROR, "Failed to notify selector for client socket %d", key->fd);
+                log(ERROR, "Failed to set interest for remote socket %d", key->fd);
+                return sendFailureResponseRemote(key);
+            }
+            if (data->client->destination.addressType == DOMAINNAME) {
+                if (selector_notify_block(key->s, data->client_fd) != SELECTOR_SUCCESS) {
+                    log(ERROR, "Failed to notify selector for client socket %d", key->fd);
+                    return sendFailureResponseRemote(key);
+                }
                 data->client->addressResolved = 0; // Indicate that the callback is not ready
                 return RELAY_CONNECTING; // Stay in the connecting state to retry the connection
             }
 
-            if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
-                log(ERROR, "Failed to set interest for client socket %d", key->fd);
-            }
-            data->client->addressResolved = 1; // Indicate that the address is resolved (failed)
-            return RELAY_ERROR;
+            return sendFailureResponseRemote(key); // Change to the relay error state
+
+//            if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
+//                log(ERROR, "Failed to set interest for client socket %d", key->fd);
+//                return sendFailureResponseRemote(key);
+//            }
+//            data->client->addressResolved = 1; // Indicate that the address is resolved (failed)
+//            return RELAY_ERROR;
         }
         data->connectionReady = 1;
     }
@@ -71,20 +83,23 @@ unsigned connectWrite(struct selector_key * key) {
     data->client->responseStatus = SOCKS5_SUCCEEDED; // Set response status to success
     data->client->addressResolved = 1;
     metrics_add_dns_resolution();
-    if (data->client->destination.addressType == DOMAINNAME && selector_notify_block(key->s,data->client_fd) != SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to notify selector for client socket %d", key->fd);
-        data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        return RELAY_ERROR;
-    }
-    if (data->client->destination.addressType != DOMAINNAME && selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
-        log(ERROR, "Failed to set interest for client socket %d", key->fd);
-        data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        return RELAY_ERROR;
+    if (data->client->destination.addressType == DOMAINNAME) {
+        if (selector_notify_block(key->s,data->client_fd) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to notify selector for client socket %d", key->fd);
+            data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+            return sendFailureResponseRemote(key);
+        }
+    } else {
+        if (selector_set_interest(key->s, data->client_fd, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", key->fd);
+            data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+            return sendFailureResponseRemote(key);
+        }
     }
     if (selector_set_interest(key->s, key->fd, OP_NOOP) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to set interest for remote socket %d", key->fd);
         data->client->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        return RELAY_ERROR;
+        return sendFailureResponseRemote(key);
     }
     return RELAY_REMOTE; // Change to the relay remote state
 }
@@ -121,7 +136,7 @@ unsigned sendFailureResponseClient(struct selector_key *key) {
     return sendFailureResponse(key->data, key->fd, ERROR_CLIENT, key);
 }
 
-unsigned sendFailureResponseRemote(struct selector_key *key) { //todo will be needed just in case the selector fails, what a mess this is
+unsigned sendFailureResponseRemote(struct selector_key *key) {
     remoteData *data = key->data;
     return sendFailureResponse(data->client, data->client_fd, RELAY_ERROR, key);
 }
@@ -130,17 +145,17 @@ unsigned handleRequestWrite(struct selector_key *key) {
     int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
 
+    if (data->responseStatus != SOCKS5_SUCCEEDED) {
+        log(ERROR, "Connection failed with status: %d", data->responseStatus);
+        return sendFailureResponseClient(key); // Send failure response to client
+    }
+
     // Get the local address info for the remote socket
     struct sockaddr_storage localAddr;
     socklen_t localAddrLen = sizeof(localAddr);
     if (getsockname(data->remoteSocket, (struct sockaddr *)&localAddr, &localAddrLen) < 0) {
         log(ERROR, "Failed to get local socket address: %s", strerror(errno));
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        return sendFailureResponseClient(key); // Send failure response to client
-    }
-
-    if (data->responseStatus != SOCKS5_SUCCEEDED) {
-        log(ERROR, "Connection failed with status: %d", data->responseStatus);
         return sendFailureResponseClient(key); // Send failure response to client
     }
 
@@ -175,7 +190,6 @@ unsigned handleRequestWrite(struct selector_key *key) {
         metrics_add_unsupported_input();
         return ERROR_CLIENT;
     }
-
     //send the response to the client
     const ssize_t numBytesSent = send(clntSocket, response, localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST, 0); //todo everything prior should be modularized because if ewould block the it will redo EVERYTHING
     if (numBytesSent < 0) {

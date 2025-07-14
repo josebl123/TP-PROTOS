@@ -100,12 +100,13 @@ void clientClose(const unsigned state, struct selector_key *key) {
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
 void remoteClose(const unsigned state, struct selector_key *key) {
+    remoteData *data = key->data;
     if (state == RELAY_ERROR) {
         log(ERROR, "Closing remote socket %d due to error", key->fd);
     } else {
         log(INFO, "Closing remote socket %d after completion", key->fd);
     }
-    selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
+    selector_unregister_fd(key->s, data->client_fd);
 }
 
  static const struct state_definition states[] = {
