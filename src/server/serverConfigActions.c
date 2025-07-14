@@ -285,6 +285,7 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
     char username[MAX_USERNAME_LEN + 1] = {0};
     char password[MAX_PASSWORD_LEN + 1] = {0};
     memcpy(username,    readPtr + 1,  ulen);
+    buffer_read_adv(data->clientBuffer, ulen + 1); // Avanzar el buffer para saltar el nombre de usuario
     readPtr = buffer_read_ptr(data->clientBuffer, &available);
 
     memcpy(password, readPtr + 1 ,passlen);
