@@ -209,11 +209,11 @@ unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
 }
 unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts) {
     const clientConfigData *data = key->data;
-    socksArgs->serverAcceptsNoAuth = true;
+    socksArgs->serverAcceptsNoAuth = accepts;
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : STATUS_SERVER_GENERAL_FAILURE);
+    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : ADMIN_CMD_REJECTS_NO_AUTH);
     buffer_write(data->clientBuffer, STATUS_OK);
     return accepts ? handleAdminAcceptsNoAuthWrite(key): handleAdminRejectsNoAuthWrite(key);
 }
