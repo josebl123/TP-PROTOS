@@ -124,7 +124,7 @@ void remoteClose(const unsigned state, struct selector_key *key) {
 static const struct state_definition relay_states[] = {
     [RELAY_CONNECTING] = { .state = RELAY_CONNECTING, .on_write_ready =  connectWrite}, // This state handles the connection to the remote server
     [RELAY_REMOTE] = { .state = RELAY_REMOTE, .on_read_ready = handleRelayRemoteRead, .on_write_ready = handleRelayRemoteWrite },
-//    [FAILURE_RESPONSE] = { .state = FAILURE_RESPONSE, .on_write_ready = sendFailureResponseRemote }, // Write failure response to remote
+    [FAILURE_RESPONSE] = { .state = FAILURE_RESPONSE, .on_write_ready = sendFailureResponseRemote }, // Write failure response to remote
     [RELAY_DONE] = { .state = RELAY_DONE, .on_arrival = remoteClose },
     [RELAY_ERROR] = { .state = RELAY_ERROR, .on_arrival = remoteClose },
 };
