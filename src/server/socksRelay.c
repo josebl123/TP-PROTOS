@@ -51,8 +51,8 @@ int update_selector_interests(struct selector_key *key, clientData *clientData, 
 
 int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
     // Este estado se usa cuando se quiere escribir inmediatamente al remoto sin esperar a que haya datos del cliente
-    remoteData *data = key->data;
-    int clntFd = data->client_fd; // Socket remoto
+    const remoteData *data = key->data;
+    const int clntFd = data->client_fd; // Socket remoto
 
     // Enviar mensaje al remoto
     size_t readLimit;
@@ -85,7 +85,7 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
 int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
     // Este estado se usa cuando se quiere escribir inmediatamente al cliente sin esperar a que haya datos del remoto
     clientData *data = key->data;
-    int remoteSocket = data->remoteSocket; // Socket del cliente
+    const int remoteSocket = data->remoteSocket; // Socket del cliente
 
     // Enviar mensaje al cliente
     size_t readLimit;

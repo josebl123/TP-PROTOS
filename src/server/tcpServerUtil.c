@@ -91,9 +91,9 @@ void handleRemoteClose( struct selector_key *key) {
 }
 void clientClose(const unsigned state, struct selector_key *key) {
     if (state == ERROR_CLIENT) {
-        log(ERROR, "Closing remote socket %d due to error", key->fd);
+        log(ERROR, "Closing socket %d due to error", key->fd);
     } else {
-        log(INFO, "Closing remote socket %d after completion", key->fd);
+        log(INFO, "Closing socket %d after completion", key->fd);
     }
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
@@ -572,7 +572,7 @@ void handleMasterRead(struct selector_key *key) {
         data->origin.port = ntohs(address.sin_port);
     } else if (address.sin_family == AF_INET6) {
         data->origin.addressType = IPV6;
-        struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&address;
+        const struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&address;
         memcpy(&data->origin.address.ipv6, &addr6->sin6_addr, sizeof(struct in6_addr));
         data->origin.port = ntohs(addr6->sin6_port);
     } else {

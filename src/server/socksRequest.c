@@ -412,7 +412,7 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
 }
 
 unsigned handleRequestRead(struct selector_key *key) {
-    int clntSocket = key->fd; // Socket del cliente
+    const int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
 
     // Recibir mensaje del cliente

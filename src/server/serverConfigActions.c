@@ -284,10 +284,11 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
     char password[MAX_PASSWORD_LEN + 1] = {0};
-    memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
+    memcpy(username,    readPtr + 1,  ulen);
+    readPtr = buffer_read_ptr(data->clientBuffer, &available);
 
-    memcpy(password, buffer_read_ptr(data->clientBuffer, &available) ,passlen);
-    buffer_read_adv(data->clientBuffer, ulen + 1 + passlen +1);
+    memcpy(password, readPtr + 1 ,passlen);
+    buffer_read_adv(data->clientBuffer,  passlen +1);
     bool flag = 1;
 
     if (!addUser(username, ulen, password, passlen,false)) {
@@ -359,6 +360,7 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
     int flag = 1;
 
     log(INFO, "received username: %s", username);
+    log(INFO, "user length: %d", ulen);
     if (!removeUser(username, ulen)) {
         flag = 0;
     }
