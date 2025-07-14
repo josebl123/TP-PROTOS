@@ -3,6 +3,7 @@
 //
 
 #include "clientAuth.h"
+#include "clientConfig.h"
 #include "args.h"
 #include "logger.h"
 #include "client.h"
