@@ -510,6 +510,7 @@ int initializeClientData(clientData *data) {
         free(data);
         return -1;
     }
+    memset(dnsRequest, 0, sizeof(struct dnsReq)); // Initialize DNS request structure
     data->dnsRequest = dnsRequest; // Initialize the DNS request structure
     data->pointerToFree = NULL; // Initialize remote address info to NULL
 
@@ -518,6 +519,7 @@ int initializeClientData(clientData *data) {
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
     data->isAnonymous = 1; // Initialize anonymous flag to true
+    memset(&data->current_user_conn, 0, sizeof(data->current_user_conn)); // Initialize current user connection data
     user_connection_init(&data->current_user_conn);
     return 0;
 }
@@ -546,7 +548,7 @@ void handleMasterRead(struct selector_key *key) {
     getpeername(new_socket, (struct sockaddr*)&address, &addrlen);
 
     // Prepare client data structure
-    clientData *data = malloc(sizeof(clientData));
+    clientData *data = calloc(1, sizeof(clientData));
      if (data == NULL) {
         log(ERROR, "Failed to allocate memory for client data");
         return ;

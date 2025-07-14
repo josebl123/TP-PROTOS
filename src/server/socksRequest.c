@@ -509,7 +509,8 @@ unsigned handleDomainResolve(struct selector_key *key) {
             continue;
         }
 
-        if ((connected = connect(remoteSocket, addr->ai_addr, addr->ai_addrlen) < 0)) {
+        connected = connect(remoteSocket, addr->ai_addr, addr->ai_addrlen);
+        if (connected < 0) {
             if (errno != EINPROGRESS) { // Non-blocking connect
                 log(ERROR, "connect() failed for address %s: %s", addrBuffer, strerror(errno));
                 close(remoteSocket);

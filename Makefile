@@ -1,6 +1,5 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -g -Isrc/utils -D_GNU_SOURCE
-SAN_FLAGS = -fsanitize=address -fno-omit-frame-pointer
 BIN = server
 CLIENT_BIN = client
 TEST_BIN = test_program
@@ -80,7 +79,7 @@ dirs:
 
 # Main server target
 $(BIN_DIR)/$(BIN): $(SERVER_OBJS)
-	$(CC) $(CFLAGS) $(SAN_FLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl $(SAN_FLAGS)
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl
 
 # Client target
 $(BIN_DIR)/$(CLIENT_BIN): $(CLIENT_OBJS)
@@ -109,3 +108,12 @@ runclient: client
 # Run the tests
 runtest: test
 	./$(BIN_DIR)/$(TEST_BIN)
+
+valgrind: $(BIN_DIR)/$(BIN)
+	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(BIN)
+
+valgrindtest: $(BIN_DIR)/$(TEST_BIN)
+	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(TEST_BIN)
+
+valgrindclient: $(BIN_DIR)/$(CLIENT_BIN)
+	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(CLIENT_BIN)
