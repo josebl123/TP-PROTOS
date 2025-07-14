@@ -14,11 +14,13 @@
 #include "server.h"
 #include "serverConfigActions.h"
 #include "serverConfigTypes.h"
+#include <time.h>
 
 #include "args.h"
 
 #define MAX_ADDR_BUFFER 128
 #define MIN_CONFIG_READ_LENGTH 3 // Minimum bytes to read for config (version, rsv, userlen)
+#define CONFIG_TIMEOUT_SEC 60 // Timeout for incomplete config messages
 
 
 static char addrBuffer[MAX_ADDR_BUFFER];
@@ -259,7 +261,7 @@ unsigned handleAdminInitialRequestWrite(struct selector_key *key) {
 
 
 unsigned adminAttemptInitialRequestWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
@@ -288,11 +290,14 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
         return CONFIG_DONE;
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
-    if (numBytesRcvd < 4) return CONFIG_DONE;
-    const uint8_t version = buffer_read(data->clientBuffer);
-    const uint8_t rsv = buffer_read(data->clientBuffer);
-    const uint8_t cmd = buffer_read(data->clientBuffer); // 0=stats, 1=config
-    const uint8_t ulen = buffer_read(data->clientBuffer);
+
+    size_t readAvailable;
+    const uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readAvailable);
+    if (readAvailable < 4) return ADMIN_INITIAL_REQUEST_READ;
+    const uint8_t version = readPtr[0];
+    const uint8_t rsv = readPtr[1];
+    const uint8_t cmd = readPtr[2]; // 0=stats, 1=config
+    const uint8_t ulen = readPtr[3];
 
     if (version != CONFIG_VERSION) {
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
@@ -309,7 +314,8 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
         return attempt_send_bad_request_error(key);
     }
 
-    if (numBytesRcvd < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
+    if (readAvailable < 4 + ulen) return ADMIN_INITIAL_REQUEST_READ;
+    buffer_read_adv(data->clientBuffer, 4);
 
     char username[MAX_USERNAME_LEN + 1] = {0};
     if (ulen > 0) memcpy(username,  buffer_read_ptr(data->clientBuffer, &available), ulen);
@@ -539,23 +545,37 @@ int initializeClientConfigData(clientConfigData *data) {
 
     memset(data->authInfo.username, 0, sizeof(data->authInfo.username));
     memset(data->authInfo.password, 0, sizeof(data->authInfo.password));
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
+
     return 0;
+}
+
+void handleConfigTimeout(struct selector_key *key) {
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    const clientConfigData *data = key->data;
+
+    if (difftime(now.tv_sec, data->last_activity.tv_sec) > CONFIG_TIMEOUT_SEC ) {
+        selector_unregister_fd(key->s, key->fd);
+    }
 }
 
 static const fd_handler client_handler = {
     .handle_read = config_read,
     .handle_write = config_write,
     .handle_close = handleConfigClose,
-    .handle_timeout = NULL,
+    .handle_timeout = handleConfigTimeout,
 };
 
 void config_read(struct selector_key *key) {
-    const clientConfigData *data = key->data;
+    clientConfigData *data = key->data;
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
     stm_handler_read(data->stm, key); //usar enum para detectar errores
 }
 
 void config_write(struct selector_key *key) {
-    const clientConfigData *data = key->data;
+    clientConfigData *data = key->data;
+    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
     stm_handler_write(data->stm, key);
 }
 

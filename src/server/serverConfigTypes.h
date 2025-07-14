@@ -94,6 +94,7 @@ typedef struct {
     uint8_t target_ulen;
     char target_password[MAX_PASSWORD_LEN];
     uint8_t target_plen;
+    struct timespec last_activity; // Última actividad del cliente
 
     int response_code; // Código de respuesta para enviar al cliente
 
