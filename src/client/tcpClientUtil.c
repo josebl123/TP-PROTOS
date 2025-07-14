@@ -167,6 +167,7 @@ void handleClientClose(const unsigned state, struct selector_key *key) {
     free(data->clientBuffer->data);
     free(data->clientBuffer);
     free(data);
+    selector_destroy(key->s);
     close(key->fd);
     exit(state == DONE ? 0 : 1);
 }

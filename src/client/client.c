@@ -33,6 +33,8 @@ static const struct state_definition states[] = {
   [CONFIG_WRITE] =  { .state = CONFIG_WRITE, .on_write_ready = handleConfigWrite },
 };
 
+
+
 int main(int argc, char** argv) {
   struct clientArgs client_args;
   parse_client_args(argc, argv, &client_args);
