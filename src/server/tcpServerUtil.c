@@ -423,7 +423,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
     }
 
     if (!connected) {
-        log(INFO, "CONNECTED IMMEDIATELY to remote address %s", printSocketAddress((struct sockaddr *) &remoteAddr, addrBuffer));
+        log(INFO, "CONNECTED IMMEDIATELY");
         if (remoteSocketInit(remoteSock, key, RELAY_REMOTE, OP_NOOP) < 0 ) {
             log(ERROR, "Failed to initialize remote socket");
             return -1; // Initialize the remote socket
@@ -513,6 +513,8 @@ int initializeClientData(clientData *data) {
     }
     data->dnsRequest = dnsRequest; // Initialize the DNS request structure
     data->pointerToFree = NULL; // Initialize remote address info to NULL
+
+    data->addressResolved = 0; // Initialize address resolved flag to false
 
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data

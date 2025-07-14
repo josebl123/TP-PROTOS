@@ -474,7 +474,7 @@ unsigned handleDomainResolve(struct selector_key *key) {
         }
 
         if (!connected) {
-            log(INFO, "Connected immediately to remote address in domain case %s", printSocketAddress(addr->ai_addr, addrBuffer));
+            log(INFO, "Connected immediately");
             if (remoteSocketInit(remoteSocket, key, RELAY_REMOTE, OP_NOOP) < 0) {
                 log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
                 close(remoteSocket);
