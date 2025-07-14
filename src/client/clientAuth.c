@@ -57,12 +57,9 @@ unsigned handleAuthRead(struct selector_key *key){
     buffer_read_adv(data->clientBuffer, AUTH_HEADER_LEN);
 
 
-    if (status == STATUS_SERVER_GENERAL_FAILURE) {
-        printf("### Server error\n");
+    if (status != STATUS_OK) {
+        failure_response_print(status);
         return ERROR_CLIENT;
-    }
-    if (status == STATUS_BAD_REQUEST) {
-        printf("### Bad request\n");
     }
     if (role == ROLE_USER) {
         if (data->args->flag == NULL || strcmp(data->args->flag, "default") != 0) {

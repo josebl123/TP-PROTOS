@@ -65,6 +65,17 @@ void client_read(struct selector_key *key) {
     stm_handler_read(data->stm, key);
 }
 
+void failure_response_print(int response) {
+    switch (response) {
+        case STATUS_BAD_REQUEST:
+            printf("#Fail, error: Bad request\n");
+            break;
+        default:
+            printf("#Fail, error: Server general failure\n");
+            break;
+    }
+}
+
 void client_write(struct selector_key *key) {
     clientData *data = key->data;
     stm_handler_write(data->stm, key);
@@ -113,7 +124,7 @@ unsigned int handleStatsRead(struct selector_key *key) {
         return ERROR_CLIENT;
     }
     if (status != STATS_STATUS_OK) {
-        printf("#Fail, error: There was an error fetching Stats\n");
+        failure_response_print(status);
         buffer_read_adv(buf, STATS_TOTAL_HEADER);
         return ERROR_CLIENT;
     }

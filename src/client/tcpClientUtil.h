@@ -7,6 +7,14 @@
 
 #endif //TCPCLIENTUTILS_H
 #include "selector.h"
+
+typedef enum {
+    STATUS_OK = 0x00,
+    STATUS_SERVER_GENERAL_FAILURE = 0x01,
+    STATUS_BAD_REQUEST = 0x02,
+} status_code;
+
+
 int tcpClientSocket(const char *host, const char *service);
 
 void client_close(struct selector_key *key);

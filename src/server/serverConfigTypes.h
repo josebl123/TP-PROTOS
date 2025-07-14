@@ -17,8 +17,13 @@
 #define MAX_BUFFER_SIZE 65536
 
 #define CONFIG_VERSION 0x01
-#define STATUS_OK 0x00
-#define STATUS_FAIL 0x01
+
+
+typedef enum {
+    STATUS_OK = 0x00,
+    STATUS_SERVER_GENERAL_FAILURE = 0x01,
+    STATUS_BAD_REQUEST = 0x02,
+} status_code;
 
 
 typedef enum {
@@ -89,6 +94,9 @@ typedef struct {
     uint8_t target_ulen;
     char target_password[MAX_PASSWORD_LEN];
     uint8_t target_plen;
+
+    int response_code; // Código de respuesta para enviar al cliente
+
 } clientConfigData;
 
 #endif //SERVERCONFIGTYPES_H

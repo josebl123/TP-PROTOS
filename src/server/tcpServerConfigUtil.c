@@ -46,7 +46,7 @@ unsigned send_auth_fail(struct selector_key *key) {
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, STATUS_FAIL);
+    buffer_write(data->clientBuffer, data->response_code);
 
     const size_t availableBytes;
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
@@ -104,12 +104,13 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
 }
 
 unsigned attemptAuthConfigWrite (struct selector_key *key) {
-    const clientConfigData *data = key->data;
+    clientConfigData *data = key->data;
 
     buffer_reset(data->clientBuffer);
     buffer_write(data->clientBuffer, CONFIG_VERSION);
     buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, data->role != ROLE_INVALID? STATUS_OK : STATUS_FAIL);
+    data->response_code = (data->role != ROLE_INVALID ? STATUS_OK : STATUS_BAD_REQUEST);
+    buffer_write(data->clientBuffer, data->response_code);
     if (data->role != ROLE_INVALID) {
         buffer_write(data->clientBuffer, data->role);
     }
