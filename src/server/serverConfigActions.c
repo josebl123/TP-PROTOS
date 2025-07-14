@@ -11,6 +11,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <errno.h>
 #include "server.h"
 #include "serverConfigTypes.h"
 #define METRICS_WRITE_HEADER_SIZE 3 // Size of the metrics header (version, rsv, status, role)
@@ -124,8 +125,19 @@ unsigned addUser( char * username, const uint8_t ulen,  char *password, const ui
     log(ERROR, "User limit reached, cannot add more users");
     return false;
 }
+unsigned attemptAdminBufferSizeChangeWrite(struct selector_key *key, bool flag) {
+    const clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_CHANGE_BUFFER_SIZE);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminBufferSizeChangeWrite(key);
+
+}
+
 unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     const int fd = key->fd;
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
@@ -141,8 +153,10 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
     }
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    size_t readAvailable;
+    buffer_read_ptr(data->clientBuffer, &readAvailable);
 
-    if (numBytesRcvd < 5) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
+    if (readAvailable < 5) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
     // Saltar los primeros 4 bytes
     buffer_read_adv(data->clientBuffer, 4); //TODO: MAGIC NUMBER
 
@@ -151,57 +165,77 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
     log(INFO, "Received new buffer size: %u", new_buf_size);
     int flag = 1;
 
-    if (new_buf_size < 1024 || new_buf_size > 65536) {
+    if (new_buf_size < MIN_BUFFER_SIZE || new_buf_size > MAX_BUFFER_SIZE) {
         flag = 0;
     }
-
     bufferSize = new_buf_size;
 
-
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
-    selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_BUFFER_SIZE_CHANGE;
+    return attemptAdminBufferSizeChangeWrite(key, flag);
 }
-
-unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    int fd = key->fd;
-    int flag = buffer_read(data->clientBuffer);
-
-    if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_CHANGE_BUFFER_SIZE, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to change buffer size");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_CHANGE_BUFFER_SIZE, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
+unsigned genericWrite(struct selector_key * key, unsigned next_state, unsigned current_state) {
+    const clientConfigData *data = key->data;
+    const int fd = key->fd;
+    size_t available;
+    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    const ssize_t numBytesSent = send(fd, ptr, available, 0);
+    if (numBytesSent < 0) {
+        if (errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", fd);
+            return CONFIG_DONE; // El cliente cerró la conexión
+        }
+        if ( errno == EAGAIN || errno == EWOULDBLOCK) {
+            log(INFO, "Socket %d would block, try again later", fd);
+            return current_state; // El socket está bloqueado, intenta de nuevo
+        }
+        return ERROR_CONFIG_CLIENT;
     }
+    if (numBytesSent == 0) {
+        log(INFO, "Client socket %d closed connection", fd);
+        return CONFIG_DONE; // El cliente cerró la conexión
+    }
+    if (numBytesSent < (ssize_t)available) {
+        log(ERROR, "Partial write on client socket %d", fd);
+        return current_state; // No se envió todo, intenta de nuevo
+    }
+    buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
+    log(INFO, "Buffer size changed to %u", bufferSize);
 
-    return CONFIG_DONE; //TODO: lo hacemos persistnece?
+    return next_state;
+}
+unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
+    return genericWrite(key, CONFIG_DONE, ADMIN_BUFFER_SIZE_CHANGE);
+}
+unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts) {
+    const clientConfigData *data = key->data;
+    socksArgs->serverAcceptsNoAuth = true;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : ADMIN_CMD_REJECTS_NO_AUTH);
+    buffer_write(data->clientBuffer, STATUS_OK);
+    return accepts ? handleAdminAcceptsNoAuthWrite(key): handleAdminRejectsNoAuthWrite(key);
 }
 
 unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
-    socksArgs->serverAcceptsNoAuth = true;
-
-    uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ACCEPTS_NO_AUTH, STATUS_OK };
-    send(key->fd, response, sizeof(response), 0);
-
-    return CONFIG_DONE;
+    return genericWrite(key, CONFIG_DONE, ADMIN_ACCEPTS_NO_AUTH);
 }
 
 unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
-    socksArgs->serverAcceptsNoAuth = false;
-
-    uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REJECTS_NO_AUTH, STATUS_OK };
-    send(key->fd, response, sizeof(response), 0);
-
-    return CONFIG_DONE;
+    return genericWrite(key, CONFIG_DONE, ADMIN_REJECTS_NO_AUTH);
+}
+unsigned attemptAdminAddUserWrite(struct selector_key *key, bool flag) {
+    const clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_ADD_USER);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminAddUserWrite(key);
 }
 
 
 unsigned handleAdminAddUserRead(struct selector_key * key) {
-    clientConfigData *data = key->data;
+    const clientConfigData *data = key->data;
     const int fd = key->fd;
     size_t available;
     uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
@@ -218,7 +252,10 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (numBytesRcvd < 4) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
+    size_t readAvailable;
+    buffer_read_ptr(data->clientBuffer, &readAvailable);
+
+    if (readAvailable < 4) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
 
     const uint8_t ulen = buffer_read(data->clientBuffer);
     if (ulen > MAX_USERNAME_LEN) {
@@ -239,37 +276,29 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
 
     if (passlen > 0) memcpy(password, buffer_read_ptr(data->clientBuffer, &available) ,passlen);
     buffer_read_adv(data->clientBuffer, passlen);
-    int flag = 1;
-
-    log(INFO, "received username: %s", username);
-    log(INFO, "received password: %s", password);
+    bool flag = 1;
 
     if (!addUser(username, ulen, password, passlen,false)) {
         flag = 0;
     }
 
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
-    selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_ADD_USER;
 
+    selector_set_interest_key(key, OP_WRITE);
+    return attemptAdminAddUserWrite(key, flag);
 }
 
 unsigned handleAdminAddUserWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    int fd = key->fd;
-    int flag = buffer_read(data->clientBuffer);
+    return genericWrite(key, CONFIG_DONE, ADMIN_ADD_USER);
+}
 
-    if (flag) {
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to add user");
-    const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_ADD_USER, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
-    }
-
-    return CONFIG_DONE; //TODO: lo hacemos persistnece?
+unsigned attemptAdminRemoveUserWrite(struct selector_key *key, bool flag) {
+    const clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_REMOVE_USER);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminRemoveUserWrite(key);
 }
 
 unsigned handleAdminRemoveUserRead(struct selector_key * key) {
@@ -290,7 +319,10 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (numBytesRcvd < 2) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
+    size_t readAvailable;
+    buffer_read_ptr(data->clientBuffer, &readAvailable);
+
+    if (readAvailable < 2) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
 
     const uint8_t ulen = buffer_read(data->clientBuffer);
     if (ulen > MAX_USERNAME_LEN) {
@@ -309,29 +341,22 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         flag = 0;
     }
 
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
     selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_REMOVE_USER;
+    return attemptAdminRemoveUserWrite(key, flag);
 }
 
 unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
-    const clientConfigData *data = key->data;
-    const int fd = key->fd;
-    const int flag = buffer_read(data->clientBuffer);
-
-    if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to remove user");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_REMOVE_USER, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
-    }
-
-    return CONFIG_DONE; //TODO: lo hacemos persistnece?
+    return genericWrite(key, CONFIG_DONE, ADMIN_REMOVE_USER);
 }
-
+unsigned attemptAdminMakeAdminWrite(struct selector_key *key, bool flag) {
+    const clientConfigData *data = key->data;
+    buffer_reset(data->clientBuffer);
+    buffer_write(data->clientBuffer, CONFIG_VERSION);
+    buffer_write(data->clientBuffer, RSV);
+    buffer_write(data->clientBuffer, ADMIN_CMD_MAKE_ADMIN);
+    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_FAIL);
+    return handleAdminMakeAdminWrite(key);
+}
 
 unsigned handleAdminMakeAdminRead(struct selector_key * key) {
     const clientConfigData *data = key->data;
@@ -350,8 +375,10 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
     }
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    size_t readAvailable;
+    buffer_read_ptr(data->clientBuffer, &readAvailable);
 
-    if (numBytesRcvd < 2) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
+    if (readAvailable < 2) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
 
     const uint8_t ulen = buffer_read(data->clientBuffer);
     if (ulen > MAX_USERNAME_LEN) {
@@ -370,119 +397,69 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
         flag = 0;
     }
 
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, flag);
     selector_set_interest_key(key, OP_WRITE);
-    return ADMIN_MAKE_ADMIN;
+    return attemptAdminMakeAdminWrite(key, flag);
 }
 
 unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    int fd = key->fd;
-    int flag = buffer_read(data->clientBuffer);
-
-    if (flag) {
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_OK };
-        send(fd, response, sizeof(response), 0);
-    } else {
-        log(ERROR, "Failed to make admin user");
-        const uint8_t response[4] = { CONFIG_VERSION, RSV, ADMIN_CMD_MAKE_ADMIN, STATUS_FAIL };
-        send(fd, response, sizeof(response), 0);
-    }
-
-    return CONFIG_DONE; //TODO: lo hacemos persistnece?
+   return genericWrite(key, CONFIG_DONE, ADMIN_MAKE_ADMIN);
 }
 
-unsigned handleUserMetricsWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    const int clntSocket = key->fd;
 
-    if (data->metrics_buf == NULL) {
-        const size_t bufsize = METRICS_BUF_CHUNK;
-        char *buffer = malloc(bufsize);
-        if (!buffer) {
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
+bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
+    const size_t bufsize = METRICS_BUF_CHUNK;
+    char *buffer = malloc(bufsize);
+    if (!buffer) return false;
 
-        FILE *memfile = fmemopen(buffer, bufsize, "w");
-        if (!memfile) {
-            free(buffer);
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        user_metrics *um = get_or_create_user_metrics(data->authInfo.username);
-        if (!um) {
-            log(ERROR, "User metrics not found for %s", data->authInfo.username);
-            fclose(memfile);
-            free(buffer);
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        print_user_metrics_tabbed(um, data->authInfo.username, memfile);
-        fflush(memfile);
-
-        const size_t written = ftell(memfile);
-        fclose(memfile);
-
-        // Header (3) + longitud (4) + cuerpo
-        const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
-        char *full_buf = malloc(total_len);
-        if (!full_buf) {
-            free(buffer);
-            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
-            send(clntSocket, response, sizeof(response), 0);
-            return CONFIG_DONE;
-        }
-
-        // Header
-        full_buf[0] = CONFIG_VERSION;
-        full_buf[1] = RSV;
-        full_buf[2] = STATUS_OK;
-
-        // Longitud en network byte order
-        const uint32_t body_len = htonl(written);
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-
-        // Cuerpo
-        memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
-
+    FILE *memfile = fmemopen(buffer, bufsize, "w");
+    if (!memfile) {
         free(buffer);
-
-        data->metrics_buf = full_buf;
-        data->metrics_buf_len = total_len;
-        data->metrics_buf_offset = 0;
+        return false;
     }
 
-    const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
-    if (sent < 0) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-        return CONFIG_DONE;
+    user_metrics *um = get_or_create_user_metrics(data->authInfo.username);
+    if (!um) {
+        log(ERROR, "User metrics not found for %s", data->authInfo.username);
+        fclose(memfile);
+        free(buffer);
+        return false;
     }
 
-    data->metrics_buf_offset += sent;
+    print_user_metrics_tabbed(um, data->authInfo.username, memfile);
+    fflush(memfile);
 
-    if (data->metrics_buf_offset >= data->metrics_buf_len) {
-        free(data->metrics_buf);
-        data->metrics_buf = NULL;
-        data->metrics_buf_len = 0;
-        data->metrics_buf_offset = 0;
-        return CONFIG_DONE;
+    const size_t written = ftell(memfile);
+    fclose(memfile);
+
+    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+    char *full_buf = malloc(total_len);
+    if (!full_buf) {
+        free(buffer);
+        return false;
     }
 
-    return USER_METRICS;
+    full_buf[0] = CONFIG_VERSION;
+    full_buf[1] = RSV;
+    full_buf[2] = STATUS_OK;
+
+    const uint32_t body_len = htonl(written);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+
+    free(buffer);
+
+    data->metrics_buf = full_buf;
+    data->metrics_buf_len = total_len;
+    data->metrics_buf_offset = 0;
+    return true;
 }
 
-unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, unsigned next_state) {
+void send_metrics_fail_response(int clntSocket) {
+    const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_FAIL };
+    send(clntSocket, response, sizeof(response), 0);
+}
+
+unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, const unsigned next_state) {
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
     const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
     if (sent < 0) {
@@ -601,7 +578,7 @@ void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
     data->metrics_buf_offset = 0;
 }
 
-unsigned handleAdminMetricsWrite(struct selector_key *key) {
+unsigned handleAdminMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
@@ -623,4 +600,18 @@ unsigned handleAdminMetricsWrite(struct selector_key *key) {
         if (data->metrics_buf == NULL) return CONFIG_DONE;
     }
     return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
+}
+
+unsigned handleUserMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
+    clientConfigData *data = key->data;
+    const int clntSocket = key->fd;
+
+    if (data->metrics_buf == NULL) {
+        if (!prepare_user_metrics_buffer_from_auth(data)) {
+            send_metrics_fail_response(clntSocket);
+            return CONFIG_DONE;
+        }
+    }
+
+    return send_metrics_buffer(data, clntSocket, USER_METRICS);
 }

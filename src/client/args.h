@@ -9,6 +9,8 @@
 #include <stdint.h>    /* for uint32_t */
 struct clientArgs {
 
+    char * flag;
+
     char* username;
     char* password;
 

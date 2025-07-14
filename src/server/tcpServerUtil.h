@@ -42,18 +42,7 @@ enum socks5_respose_size {
 };
 
 // SOCKS5 response status codes for the request stage (RFC 1928)
-enum socks5_response_status {
-    SOCKS5_SUCCEEDED = 0x00,
-    SOCKS5_GENERAL_FAILURE = 0x01,
-    SOCKS5_CONNECTION_NOT_ALLOWED = 0x02,
-    SOCKS5_NETWORK_UNREACHABLE = 0x03,
-    SOCKS5_HOST_UNREACHABLE = 0x04,
-    SOCKS5_CONNECTION_REFUSED = 0x05,
-    SOCKS5_TTL_EXPIRED = 0x06,
-    SOCKS5_COMMAND_NOT_SUPPORTED = 0x07,
-    SOCKS5_ADDRESS_TYPE_NOT_SUPPORTED = 0x08
-    // 0x09 to 0xFF: unassigned
-};
+
 
 
 

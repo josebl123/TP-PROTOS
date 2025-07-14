@@ -318,10 +318,10 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
             return ADMIN_BUFFER_SIZE_CHANGE_READ;
         case ADMIN_CMD_ACCEPTS_NO_AUTH: // accepts-no-auth
             selector_set_interest_key(key, OP_WRITE);
-            return ADMIN_ACCEPTS_NO_AUTH;
+            return attemptAdminAcceptsAuthWrite( key, true);
         case ADMIN_CMD_REJECTS_NO_AUTH: // not-accepts-no-auth
             selector_set_interest_key(key, OP_WRITE);
-            return ADMIN_REJECTS_NO_AUTH;
+            return attemptAdminAcceptsAuthWrite( key, false);
         case ADMIN_CMD_ADD_USER: // add-user
             selector_set_interest_key(key, OP_READ);
             return ADMIN_ADD_USER_READ;
