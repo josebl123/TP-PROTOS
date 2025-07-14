@@ -3,7 +3,7 @@
 
 #include "../selector.h"
 
-
+unsigned attempt_send_bad_request_error(struct selector_key *key);
 void handleConfigRead(struct selector_key *key);
 void handleConfigClose(struct selector_key *key);
 void handleServerConfigClose(struct selector_key *key);

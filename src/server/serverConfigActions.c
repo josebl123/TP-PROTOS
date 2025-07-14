@@ -14,8 +14,11 @@
 #include <errno.h>
 #include "server.h"
 #include "serverConfigTypes.h"
+#include "tcpServerConfigUtil.h"
 #define METRICS_WRITE_HEADER_SIZE 3 // Size of the metrics header (version, rsv, status, role)
 #define METRICS_WRITE_PAYLOAD_LENGTH 4
+#define BUFFER_CHANGE_REQUEST_SIZE 5 // Size of the buffer change request (version, rsv, new size)
+#define ADD_USER_MIN_LENGTH 4
 
 int makeAdmin(char *username, uint8_t ulen) {
     if (socksArgs == NULL) {
@@ -156,9 +159,9 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
     size_t readAvailable;
     buffer_read_ptr(data->clientBuffer, &readAvailable);
 
-    if (readAvailable < 5) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
+    if (readAvailable < BUFFER_CHANGE_REQUEST_SIZE) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
     // Saltar los primeros 4 bytes
-    buffer_read_adv(data->clientBuffer, 4); //TODO: MAGIC NUMBER
+    buffer_read_adv(data->clientBuffer, BUFFER_CHANGE_REQUEST_SIZE -1); //TODO: MAGIC NUMBER
 
     // Leer el nuevo buffer_size (por ejemplo, como uint32_t en network order)
     const uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->clientBuffer, &available));
@@ -252,29 +255,41 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
     size_t readAvailable;
-    buffer_read_ptr(data->clientBuffer, &readAvailable);
+    const uint8_t * readPtr= buffer_read_ptr(data->clientBuffer, &readAvailable);
 
-    if (readAvailable < 4) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
+    if (readAvailable < ADD_USER_MIN_LENGTH) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
 
-    const uint8_t ulen = buffer_read(data->clientBuffer);
-    if (ulen > MAX_USERNAME_LEN) {
-        log(ERROR, "Username length exceeds maximum: %u", ulen);
-        return CONFIG_DONE;
+    const uint8_t ulen = readPtr[0] ;
+    if (ulen > MAX_USERNAME_LEN || ulen < 1) {
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CONFIG_CLIENT;
+        }
+        return attempt_send_bad_request_error(key);    }
+    if (readAvailable < ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
+        return ADMIN_ADD_USER_READ; // No hay suficientes bytes para el nombre de usuario
+    }
+
+    const uint8_t passlen = readPtr[ulen + 1];
+    if (passlen > MAX_PASSWORD_LEN || passlen < 1) {
+        log(ERROR, "Password length exceeds maximum: %u", passlen);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CONFIG_CLIENT;
+        }
+        return attempt_send_bad_request_error(key);
+    }
+    if (readAvailable < ulen + 1 + passlen + 1) {
+        return ADMIN_ADD_USER_READ;
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
-
-    buffer_read_adv(data->clientBuffer, ulen);
-
-    const uint8_t passlen = buffer_read(data->clientBuffer);
-    if (passlen > MAX_PASSWORD_LEN) {
-        log(ERROR, "Password length exceeds maximum: %u", passlen);
-        return CONFIG_DONE;
-    }
     char password[MAX_PASSWORD_LEN + 1] = {0};
+    memcpy(username,    readPtr + 1,  ulen);
+    buffer_read_adv(data->clientBuffer, ulen + 1); // Avanzar el buffer para saltar el nombre de usuario
+    readPtr = buffer_read_ptr(data->clientBuffer, &available);
 
-    if (passlen > 0) memcpy(password, buffer_read_ptr(data->clientBuffer, &available) ,passlen);
-    buffer_read_adv(data->clientBuffer, passlen);
+    memcpy(password, readPtr + 1 ,passlen);
+    buffer_read_adv(data->clientBuffer,  passlen +1);
     bool flag = 1;
 
     if (!addUser(username, ulen, password, passlen,false)) {
@@ -320,25 +335,33 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
     }
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
-
-    size_t readAvailable;
-    buffer_read_ptr(data->clientBuffer, &readAvailable);
-
-    if (readAvailable < 2) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
-
-    const uint8_t ulen = buffer_read(data->clientBuffer);
-    if (ulen > MAX_USERNAME_LEN) {
-        log(ERROR, "Username length exceeds maximum: %u", ulen);
-        return CONFIG_DONE;
-    }
     char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username,buffer_read_ptr(data->clientBuffer, &available),  ulen);
+    size_t readAvailable;
+    const uint8_t * readPtr = buffer_read_ptr(data->clientBuffer, &readAvailable);
 
-    buffer_read_adv(data->clientBuffer, ulen);
+    if (readAvailable < 1) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
+
+    const uint8_t ulen = readPtr[0];
+    if (ulen > MAX_USERNAME_LEN || ulen < 1) {
+        log(ERROR, "Username length exceeds maximum: %u", ulen);
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CONFIG_CLIENT;
+        }
+        return attempt_send_bad_request_error(key);
+    }
+    if (readAvailable < ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
+        return ADMIN_REMOVE_USER_READ; // No hay suficientes bytes para el nombre de usuario
+    }
+
+    memcpy(username,readPtr + 1,  ulen);
+
+    buffer_read_adv(data->clientBuffer, ulen + 1);
 
     int flag = 1;
 
     log(INFO, "received username: %s", username);
+    log(INFO, "user length: %d", ulen);
     if (!removeUser(username, ulen)) {
         flag = 0;
     }
@@ -381,19 +404,23 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
     size_t readAvailable;
-    buffer_read_ptr(data->clientBuffer, &readAvailable);
+    const uint8_t * readPtr = buffer_read_ptr(data->clientBuffer, &readAvailable);
 
-    if (readAvailable < 2) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
+    if (readAvailable < 1) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
 
-    const uint8_t ulen = buffer_read(data->clientBuffer);
-    if (ulen > MAX_USERNAME_LEN) {
+    const uint8_t ulen = readPtr[0];
+    if (ulen > MAX_USERNAME_LEN || ulen < 1) {
         log(ERROR, "Username length exceeds maximum: %u", ulen);
-        return CONFIG_DONE;
+        if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for client socket %d", fd);
+            return ERROR_CONFIG_CLIENT;
+        }
+        return attempt_send_bad_request_error(key);
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
-    if (ulen > 0) memcpy(username,    buffer_read_ptr(data->clientBuffer, &available),  ulen);
+    memcpy(username,    readPtr + 1,  ulen);
 
-    buffer_read_adv(data->clientBuffer, ulen);
+    buffer_read_adv(data->clientBuffer, ulen + 1);
 
     int flag = 1;
 

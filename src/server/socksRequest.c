@@ -14,7 +14,7 @@
 #include <string.h>
 #include <time.h>
 #include  <signal.h>
-
+#define SOCKS5_REQUEST_HEADER_SIZE 4 // Size of the SOCKS5 request header (version, command, reserved, address type)
 static char addrBuffer[MAX_ADDR_BUFFER];
 
 unsigned connectWrite(struct selector_key * key) {
@@ -22,6 +22,7 @@ unsigned connectWrite(struct selector_key * key) {
 
     int error =0;
     socklen_t len = sizeof(error);
+    clock_gettime(CLOCK_MONOTONIC, & data->client->last_activity);
     if ( getsockopt(key->fd, SOL_SOCKET, SO_ERROR, &error, &len) < 0) {
         log(ERROR, "getsockopt() failed: %s", strerror(errno));
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
@@ -189,25 +190,26 @@ unsigned handleRequestWrite(struct selector_key *key) {
 unsigned handleDomainRequestRead(struct selector_key *key) {
     clientData *data = key->data;
 
-    const uint8_t domainLength = buffer_read(data->clientBuffer); // Longitud del nombre de dominio
+    size_t availableBytes;
+    const uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &availableBytes);
+    if (availableBytes < SOCKS5_REQUEST_HEADER_SIZE +  1) { // Check if we have enough bytes for the request header
+        log(ERROR, "Incomplete SOCKS5 request header received");
+        return REQUEST_READ; // Not enough data, wait for more
+    }
+
+    const uint8_t domainLength = readPtr[ SOCKS5_REQUEST_HEADER_SIZE ]; // Longitud del nombre de dominio
     if (domainLength < 1 ) { // Validar longitud del dominio
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         data->addressResolved = 1; // Indicate that the address is resolved (failed)
         return sendFailureResponseClient(key); // Send failure response to client
     }
 
-    size_t readLimit;
-    buffer_read_ptr(data->clientBuffer, &readLimit);
-
-    if (readLimit < (size_t)domainLength + PORT_SIZE) { // domainLength + 2 bytes for port
+    if (availableBytes < (size_t)domainLength + SOCKS5_REQUEST_HEADER_SIZE + PORT_SIZE + 1) { // domainLength + 2 bytes for port
         log(ERROR, "Incomplete domain name received");
         return REQUEST_READ;
     }
+    buffer_read_adv(data->clientBuffer, SOCKS5_REQUEST_HEADER_SIZE + 1);
 
-//    if (data->clientBuffer->write - data->clientBuffer->read < domainLength + PORT_SIZE) { // Longitud del dominio + 2 bytes de puerto
-//        log(ERROR, "Incomplete domain name received");
-//        return REQUEST_READ;
-//    }
     char domainName[domainLength + 1];
     strncpy(domainName, (char *)data->clientBuffer->read, domainLength);
     domainName[domainLength] = '\0'; // Asegurar que el nombre de dominio esté terminado en nulo
@@ -251,10 +253,12 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
     clientData *data = key->data;
     size_t readLimit;
     uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
-    if (readLimit < IPV4_ADDR_SIZE + PORT_SIZE) {
+    if (readLimit < SOCKS5_REQUEST_HEADER_SIZE + IPV4_ADDR_SIZE + PORT_SIZE) {
         log(ERROR, "Incomplete IPv4 address received");
         return REQUEST_READ;
     }
+    buffer_read_adv(data->clientBuffer, SOCKS5_REQUEST_HEADER_SIZE); // Avanzar el puntero de lectura del buffer
+    readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
     const uint32_t ip = ntohl(*(uint32_t *)readPtr); // Leer la dirección IP
     buffer_read_adv(data->clientBuffer, IPV4_ADDR_SIZE);
     readPtr = buffer_read_ptr(data->clientBuffer, &readLimit);
@@ -310,11 +314,12 @@ unsigned handleIPv4RequestRead(struct selector_key *key) {
 unsigned handleIPv6RequestRead(struct selector_key *key) {
     clientData *data = key->data;
     size_t readLimit;
-   buffer_read_ptr(data->clientBuffer, &readLimit);
-    if (readLimit < IPV6_ADDR_SIZE + PORT_SIZE) { // 16 bytes de IP + 2 bytes de puerto
+    buffer_read_ptr(data->clientBuffer, &readLimit);
+    if (readLimit < SOCKS5_REQUEST_HEADER_SIZE + IPV6_ADDR_SIZE + PORT_SIZE) { // 16 bytes de IP + 2 bytes de puerto
         log(ERROR, "Incomplete IPv4 address received");
         return REQUEST_READ;
     }
+    buffer_read_adv(data->clientBuffer, SOCKS5_REQUEST_HEADER_SIZE); // Avanzar el puntero de lectura del buffer
     char ipv6[INET6_ADDRSTRLEN];
     inet_ntop(AF_INET6, data->clientBuffer->read, ipv6, sizeof(ipv6)); // Leer la dirección IPv6
     buffer_read_adv(data->clientBuffer, IPV6_ADDR_SIZE); // Avanzar el puntero de lectura
@@ -373,14 +378,13 @@ unsigned handleIPv6RequestRead(struct selector_key *key) {
 }
 
 unsigned handleRequestRead(struct selector_key *key) {
-    int clntSocket = key->fd; // Socket del cliente
+    const int clntSocket = key->fd; // Socket del cliente
     clientData *data = key->data;
 
     // Recibir mensaje del cliente
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
-    buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
     if (numBytesRcvd < 0) {
         if ( errno == ECONNRESET) {
             log(INFO, "Client socket %d closed connection", clntSocket);
@@ -394,11 +398,19 @@ unsigned handleRequestRead(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
+    buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
 
     data->responseStatus = SOCKS5_SUCCEEDED; // Inicializar el estado de respuesta como éxito
 
+    size_t readAvailable;
+
+    const uint8_t * ptr = buffer_read_ptr(data->clientBuffer, &readAvailable);
     // Procesar la solicitud del cliente
-    const uint8_t socksVersion = buffer_read(data->clientBuffer);
+    if ( readAvailable < SOCKS5_REQUEST_HEADER_SIZE) { // Verificar si hay suficientes datos para procesar la solicitud
+        log(ERROR, "Incomplete SOCKS request received");
+        return REQUEST_READ; // Esperar más datos
+    }
+    const uint8_t socksVersion = ptr[0];
     if (socksVersion != SOCKS_VERSION) {
         log(ERROR, "Unsupported SOCKS version: %d", socksVersion);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set error status
@@ -406,7 +418,7 @@ unsigned handleRequestRead(struct selector_key *key) {
         return sendFailureResponseClient(key); // Send failure response to client
     }
         // Leer el comando de la solicitud
-    const uint8_t command = buffer_read(data->clientBuffer);
+    const uint8_t command = ptr[1];
     if (command != CONNECT) { // Solo soportamos el comando CONNECT (0x01)
         log(ERROR, "Unsupported command: %d", command);
         data->responseStatus = SOCKS5_COMMAND_NOT_SUPPORTED; // Set error status
@@ -414,7 +426,7 @@ unsigned handleRequestRead(struct selector_key *key) {
         return sendFailureResponseClient(key); // Send failure response to client
     }
 
-    const uint8_t rsv = buffer_read(data->clientBuffer); // Reservado, debe ser 0x00
+    const uint8_t rsv = ptr[2]; // Reservado, debe ser 0x00
     if (rsv != RSV) {
         log(ERROR, "Invalid RSV field: %d", rsv);
         data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set error status
@@ -423,7 +435,7 @@ unsigned handleRequestRead(struct selector_key *key) {
     }
 
         // Leer el tipo de dirección
-    const uint8_t atyp = buffer_read(data->clientBuffer);
+    const uint8_t atyp = ptr[3];
     if (atyp == IPV4) { // Dirección IPv4
       return handleIPv4RequestRead(key); // Manejar la lectura de la dirección IPv4
     }

@@ -165,15 +165,14 @@ unsigned handleAuthConfigRead(struct selector_key *key) {
     // Se necesitan los bytes del username y al menos 1 byte para passlen
     if (available < MIN_CONFIG_READ_LENGTH + (size_t)userlen + 1) return READ_CREDENTIALS;
 
-    char username[MAX_USERNAME_LEN + 1] = {0};
-    memcpy(username, ptr + MIN_CONFIG_READ_LENGTH, userlen);
-    username[userlen] = '\0';
-    data->userlen = userlen;
-
     const uint8_t passlen = ptr[MIN_CONFIG_READ_LENGTH + userlen];
 
     // Se necesitan los bytes del password
     if (available < MIN_CONFIG_READ_LENGTH + (size_t)userlen + 1 + passlen) return READ_CREDENTIALS;
+    char username[MAX_USERNAME_LEN + 1] = {0};
+    memcpy(username, ptr + MIN_CONFIG_READ_LENGTH, userlen);
+    username[userlen] = '\0';
+    data->userlen = userlen;
 
     char password[MAX_PASSWORD_LEN + 1] = {0};
     memcpy(password, ptr + MIN_CONFIG_READ_LENGTH + userlen + 1, passlen);
@@ -344,7 +343,10 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
     buffer_write_adv(data->clientBuffer, numBytesRcvd);
 
-    if (numBytesRcvd < 3) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte)
+    size_t readAvailable;
+    buffer_read_ptr(data->clientBuffer, &readAvailable);
+
+    if (readAvailable < MIN_CONFIG_READ_LENGTH) return ADMIN_COMMAND_READ; // versión, rsv, código (1 byte)
 
     const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
@@ -544,6 +546,7 @@ static const fd_handler client_handler = {
     .handle_read = config_read,
     .handle_write = config_write,
     .handle_close = handleConfigClose,
+    .handle_timeout = NULL,
 };
 
 void config_read(struct selector_key *key) {
@@ -589,7 +592,7 @@ void handleConfigClose(struct selector_key *key) {
 void handleConfigRead(struct selector_key *key) {
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
-    int new_socket = acceptTCPConfigConnection(key->fd);
+    const int new_socket = acceptTCPConfigConnection(key->fd);
     if (new_socket < 0) return;
 
     if (selector_fd_set_nio(new_socket) == -1) {
@@ -624,7 +627,7 @@ void handleConfigRead(struct selector_key *key) {
 int acceptTCPConfigConnection(const int servSock) {
     struct sockaddr_storage clntAddr;
     socklen_t clntAddrLen = sizeof(clntAddr);
-    int clntSock = accept(servSock, (struct sockaddr *)&clntAddr, &clntAddrLen);
+    const int clntSock = accept(servSock, (struct sockaddr *)&clntAddr, &clntAddrLen);
     if (clntSock < 0) {
         log(ERROR, "accept() failed");
         return -1;

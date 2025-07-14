@@ -133,7 +133,9 @@ struct dnsReq{
 
      struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
      struct addrinfo *pointerToFree; // Pointer to the address info to free later
-};
+
+     struct timespec last_activity;
+ };
 
 // Create, bind, and listen a new TCP server socket
 int setupTCPServerSocket(const char *addr, const int port);
@@ -158,5 +160,6 @@ void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);
 void socks5_write(struct selector_key *key);
 void socks5_block(struct selector_key *key);
+void socks5_timeout(struct selector_key *key);
 
 #endif
