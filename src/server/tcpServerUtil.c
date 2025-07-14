@@ -57,12 +57,7 @@ void handleTcpClose(  struct selector_key *key) {
     struct tm tm_info;
     localtime_r(&data->current_user_conn.access_time, &tm_info);
     strftime(time_str, sizeof(time_str), "%Y-%m-%d %H:%M:%S", &tm_info);
-    if (data->responseStatus != SOCKS5_SUCCEEDED) {
-        data->current_user_conn.status = SOCKS5_GENERAL_FAILURE; //TODO: MORE DEFINITION OF ERROR CODES
-    }
-    else {
-        data->current_user_conn.status = SOCKS5_SUCCEEDED;
-    }
+    data->current_user_conn.status = data->responseStatus;
     metrics_connection_closed();
 
     data->current_user_conn.port_origin = data->origin.port;
