@@ -60,7 +60,7 @@ typedef enum {
 
 typedef enum {
     GLOBAL_STATS ,
-    CONFIG
+    CONFIG = 0xFF
 }request_type;
 
 typedef enum {

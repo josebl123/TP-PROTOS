@@ -15,6 +15,7 @@
 #include "args.h"
 #include "logger.h"
 #include "client.h"
+#include "clientConfig.h"
 
 #define VERSION_OFFSET         0
 #define RSV_OFFSET             1
@@ -23,7 +24,7 @@
 #define HEADER_LENGTH          4 // VERSION + RSV + OPTION + USERNAME_LENGTH
 
 #define OPTION_STATS  0x00
-#define OPTION_CONFIG 0x01
+#define OPTION_CONFIG 0xFF
 
 unsigned handleRequestRead(struct selector_key *key) {
     clientData *data = key->data;
@@ -49,14 +50,19 @@ unsigned handleRequestRead(struct selector_key *key) {
         log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
         return ERROR_CLIENT;
     }
-    uint8_t option = buffer_read(data->clientBuffer);
-    if(option == OPTION_CONFIG) {
+
+    uint8_t status = buffer_read(data->clientBuffer);
+    if(status == OPTION_CONFIG) {
         selector_set_interest_key(key, OP_WRITE);
         return CONFIG_WRITE;
     }
-    if(option == OPTION_STATS){
+    if(status == OPTION_STATS){
         selector_set_interest_key(key, OP_READ);
         return STATS_READ;
+    }
+    if (status != OPTION_STATS && status != OPTION_CONFIG) {
+        failure_response_print(status);
+        return ERROR_CLIENT;
     }
     return ERROR_CLIENT;
 }

@@ -9,6 +9,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <errno.h>
+#include "clientConfig.h"
 
 #include "server/serverConfigTypes.h"
 

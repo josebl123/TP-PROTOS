@@ -275,9 +275,11 @@ unsigned handleAdminInitialRequestRead(struct selector_key *key) {
     const uint8_t ulen = buffer_read(data->clientBuffer);
 
     if (version != CONFIG_VERSION) {
+        selector_set_interest_key(key, OP_WRITE);
         return attempt_send_bad_request_error(key);
     }
     if (rsv != RSV) {
+        selector_set_interest_key(key, OP_WRITE);
         return attempt_send_bad_request_error(key);
     }
 
@@ -317,14 +319,17 @@ unsigned handleAdminConfigRead(struct selector_key *key) {
 
     const uint8_t version = buffer_read(data->clientBuffer);
     if (version != CONFIG_VERSION) {
+        selector_set_interest_key(key, OP_WRITE);
         return attempt_send_bad_request_error(key);
     }
     const uint8_t rsv = buffer_read(data->clientBuffer);
     if (rsv != RSV) {
+        selector_set_interest_key(key, OP_WRITE);
         return attempt_send_bad_request_error(key);
     }
     const uint8_t code = buffer_read(data->clientBuffer);
     if ( code > ADMIN_CMD_MAKE_ADMIN) {
+        selector_set_interest_key(key, OP_WRITE);
         return attempt_send_bad_request_error(key);
     }
 
