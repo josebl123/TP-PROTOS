@@ -662,7 +662,7 @@ unsigned attemptUserMetricsWrite(struct selector_key *key) {
         if (!prepare_user_metrics_buffer_from_auth(data)) {
             const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_SERVER_GENERAL_FAILURE };
             buffer_reset(data->clientBuffer);
-            memcpy(data->clientBuffer->data, response, METRICS_FAILURE_RESPONSE_SIZE);
+            memcpy(data->clientBuffer->write, response, METRICS_FAILURE_RESPONSE_SIZE);
             buffer_write_adv(data->clientBuffer, METRICS_FAILURE_RESPONSE_SIZE);
             return send_metrics_fail_response(key);
         }

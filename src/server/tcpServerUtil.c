@@ -72,7 +72,7 @@ void handleTcpClose(  struct selector_key *key) {
         user_metrics_add_connection(user_metrics, &data->current_user_conn);
     }
 
-    free(data->dnsRequest);
+//    free(data->dnsRequest);
     free(data->stm);
     free(data->remote_stm);
     free(data);
@@ -274,8 +274,8 @@ void getAddrInfoCallBack(union sigval sigval) {
         return;
     }
 
-    dnsResponse->gai_error = gai_error(&req->request); // Get the error code from the request
-    dnsResponse->addrinfo = req->request.ar_result; // Get the address info from the request
+    dnsResponse->gai_error = gai_error(req->request); // Get the error code from the request
+    dnsResponse->addrinfo = req->request->ar_result; // Get the address info from the request
 
     if (selector_notify_block(req->fdSelector, req->fd, dnsResponse) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to notify selector for fd %d", req->fd);
@@ -337,29 +337,36 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         addrLen = sizeof(struct sockaddr_in6);
         metrics_add_ipv6_connection();
     } else if (destination->addressType == DOMAINNAME) {
-        char portStr[8];
-        snprintf(portStr, sizeof(portStr), "%d", destination->port);
-
         struct dnsReq *dnsRequest = data->dnsRequest; // Get the DNS request structure from client data
         snprintf(dnsRequest->port, sizeof(dnsRequest->port), "%d", destination->port);
-        memset(&dnsRequest->hints, 0, sizeof(dnsRequest->hints)); // Initialize hints structure
 
-        struct gaicb *request[] = { &dnsRequest->request };
-        dnsRequest->request.ar_name = destination->address.domainName; // Set the domain name for the DNS request
-        dnsRequest->request.ar_service = portStr; // Set the service (port) for the DNS request
-        dnsRequest->hints.ai_protocol = IPPROTO_TCP; // Set the protocol for the DNS request
-        dnsRequest->hints.ai_family = AF_UNSPEC; // Allow both IPv4 and IPv6
-        dnsRequest->hints.ai_socktype = SOCK_STREAM; // TCP socket type
-        dnsRequest->hints.ai_flags = AI_ADDRCONFIG; // <- Mejora compatibilidad en sistemas modernos
-        dnsRequest->request.ar_request = &dnsRequest->hints; // Set the request pointer
-        dnsRequest->request.ar_result = NULL; // Initialize result to NULL
+        struct gaicb *request = calloc(1, sizeof(struct gaicb)); // Allocate memory for the request array
+        request->ar_name = destination->address.domainName; // Set the domain name for the DNS request
+        request->ar_service = dnsRequest->port;
+        request->ar_result = NULL; // Initialize result to NULL
+
+        struct addrinfo *hints = calloc(1, sizeof(struct addrinfo)); // Allocate memory for the hints structure
+
+        hints->ai_protocol = IPPROTO_TCP; // Set the protocol for the DNS request
+        hints->ai_family = AF_UNSPEC; // Allow both IPv4 and IPv6
+        hints->ai_socktype = SOCK_STREAM; // TCP socket type
+
+
+        request->ar_request = hints; // Set the request pointer
+
+
         dnsRequest->clientData = data; // Set the client data for the DNS request
         dnsRequest->fdSelector = key->s; // Set the selector for the DNS request
         dnsRequest->fd = key->fd; // Set the file descriptor for the DNS request
+        dnsRequest->request = request;
+        dnsRequest->hints = hints;
+
+        struct gaicb **list = calloc(2, sizeof(struct gaicb *)); // Allocate memory for the request list
+        list[0] = request; // Set the first request in the list
+        list[1] = NULL; // Null-terminate the list
 
         // Set up signal event for the callback
-        struct sigevent sigevent;
-        memset(&sigevent, 0, sizeof(sigevent));
+        struct sigevent sigevent = {0}; // Initialize the sigevent structure
         sigevent.sigev_notify = SIGEV_THREAD;  // Use a thread to handle the callback
         sigevent.sigev_notify_function = getAddrInfoCallBack;  // Set the callback function
         sigevent.sigev_value.sival_ptr = dnsRequest;  // Pass the DNS request to the callback
@@ -373,7 +380,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         }
 
         // Call getaddrinfo_a asynchronously
-        int gaiResult = getaddrinfo_a(GAI_NOWAIT, request, 1, &sigevent);
+        int gaiResult = getaddrinfo_a(GAI_NOWAIT, list, 1, &sigevent);
         if (gaiResult != 0) {
             log(ERROR, "getaddrinfo_a() failed for domain %s: %s",
                 destination->address.domainName, gai_strerror(gaiResult));
@@ -381,6 +388,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             metrics_add_host_unreachable_error();
             return -1;
         }
+
 
         data->addressResolved = 0; // Indicate that the address is not resolved yet
         return 0; // Return 0 to indicate that the DNS request is in progress
@@ -455,7 +463,7 @@ unsigned handleCallBack(struct selector_key *key, void *data) {
     if (res->gai_error != 0) {
         log(ERROR, "getaddrinfo() failed: %s", gai_strerror(res->gai_error));
         clientData->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
-        metrics_add_server_error();
+        metrics_add_dns_resolution_error();
         clientData->addressResolved = 1; // Mark the address as resolved (failed)
         free(res);
         return sendFailureResponseClient(key); // Exit if getaddrinfo failed
