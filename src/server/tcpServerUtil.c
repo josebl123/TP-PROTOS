@@ -39,7 +39,7 @@ void socks5_relay_write(struct selector_key *key);
 void handleTcpClose(  struct selector_key *key) {
     clientData *data =  key->data;
 
-    gai_cancel(&data->dnsRequest->request); // Cancelar la solicitud de DNS si está pendiente
+    gai_cancel(data->dnsRequest->request); // Cancelar la solicitud de DNS si está pendiente
 
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
 
@@ -95,11 +95,11 @@ void clientClose(const unsigned state, struct selector_key *key) {
 
 void remoteClose(const unsigned state, struct selector_key *key) {
     clientData *data =  key->data;
-    if (state == RELAY_ERROR) {
-        log(ERROR, "Closing remote socket %d due to error", key->fd);
-    } else {
-        log(INFO, "Closing remote socket %d after completion", key->fd);
-    }
+    // if (state == RELAY_ERROR) {
+    //     log(ERROR, "Closing remote socket %d due to error", key->fd);
+    // } else {
+    //     log(INFO, "Closing remote socket %d after completion", key->fd);
+    // }
     selector_unregister_fd(key->s, data->clientSocket);
 }
 
@@ -382,6 +382,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             metrics_add_server_error();
             return -1;
         }
+        metrics_add_dns_resolution();
 
         // Call getaddrinfo_a asynchronously
         int gaiResult = getaddrinfo_a(GAI_NOWAIT, list, 1, &sigevent);
