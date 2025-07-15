@@ -83,11 +83,11 @@ void handleRemoteClose( struct selector_key *key) {
     close(key->fd);
 }
 void clientClose(const unsigned state, struct selector_key *key) {
-    if (state == ERROR_CLIENT) {
-        log(ERROR, "Closing socket %d due to error", key->fd);
-    } else {
-        log(INFO, "Closing socket %d after completion", key->fd);
-    }
+    // if (state == ERROR_CLIENT) {
+    //     log(ERROR, "Closing socket %d due to error", key->fd);
+    // } else {
+    //     log(INFO, "Closing socket %d after completion", key->fd);
+    // }
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
