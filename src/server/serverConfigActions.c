@@ -160,8 +160,9 @@ unsigned handle_admin_buffer_size_change_read(struct selector_key * key) {
 
     if (new_buf_size < MIN_BUFFER_SIZE || new_buf_size > MAX_BUFFER_SIZE) {
         flag = 0;
+    } else {
+        buffer_size = new_buf_size;
     }
-    buffer_size = new_buf_size;
 
     return attempt_admin_buffer_size_change_write(key, flag);
 }
