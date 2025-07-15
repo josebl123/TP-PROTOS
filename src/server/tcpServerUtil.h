@@ -57,6 +57,7 @@ enum socks5_states {
   ERROR_CLIENT,
   RELAY_CLIENT,
   FAILURE_RESPONSE,
+  AWAITING_RESOLUTION,
   DOMAIN_RESOLVING,
 };
 
@@ -97,6 +98,11 @@ struct destinationInfo {
 struct authInfo {
     char username[256];
     char password[256];
+};
+
+struct dnsRes {
+    int gai_error;
+    struct addrinfo *addrinfo; // Pointer to the address info for the DNS resolution
 };
 
 struct dnsReq{
@@ -159,7 +165,7 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key, int
 void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);
 void socks5_write(struct selector_key *key);
-void socks5_block(struct selector_key *key);
+void socks5_block(struct selector_key *key, void *data);
 void socks5_timeout(struct selector_key *key);
 
 #endif

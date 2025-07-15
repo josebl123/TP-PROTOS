@@ -75,12 +75,12 @@ stm_handler_write(struct state_machine *stm, struct selector_key *key) {
 }
 
 unsigned
-stm_handler_block(struct state_machine *stm, struct selector_key *key) {
+stm_handler_block(struct state_machine *stm, struct selector_key *key, void *data) {
     handle_first(stm, key);
     if(stm->current->on_block_ready == 0) {
         abort();
     }
-    const unsigned int ret = stm->current->on_block_ready(key);
+    const unsigned int ret = stm->current->on_block_ready(key, data);
     jump(stm, ret, key);
 
     return ret;

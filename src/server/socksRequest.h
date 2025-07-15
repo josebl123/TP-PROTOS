@@ -11,7 +11,8 @@ unsigned connectWrite(struct selector_key *key);
 unsigned handleRequestRead(struct selector_key *key);
 unsigned handleRequestWrite(struct selector_key *key);
 
-unsigned handleDomainResolve(struct selector_key *key);
+unsigned handleDomainResolve(struct selector_key *key, void *data);
+unsigned handleCallBack(struct selector_key *key, void *data);
 
 unsigned sendFailureResponseClient(struct selector_key *key);
 unsigned sendFailureResponseRemote(struct selector_key *key);

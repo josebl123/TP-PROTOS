@@ -40,6 +40,8 @@ void handleTcpClose(  struct selector_key *key) {
     log(INFO, "TCP Closing client socket %d", key->fd);
     clientData *data =  key->data;
 
+    gai_cancel(&data->dnsRequest->request); // Cancelar la solicitud de DNS si está pendiente
+
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
 
     free(data->clientBuffer->data);
@@ -111,6 +113,7 @@ void remoteClose(const unsigned state, struct selector_key *key) {
     [REQUEST_READ] =  { .state = REQUEST_READ, .on_read_ready = handleRequestRead },
     [REQUEST_WRITE] = { .state = REQUEST_WRITE, .on_write_ready = handleRequestWrite },
     [DOMAIN_RESOLVING] = { .state = DOMAIN_RESOLVING, .on_block_ready = handleDomainResolve}, // Resolving domain name
+    [AWAITING_RESOLUTION] = { .state = AWAITING_RESOLUTION, .on_block_ready = handleCallBack }, // Waiting for DNS resolution
     [DONE] =          { .state = DONE, .on_arrival = clientClose },
     [ERROR_CLIENT] =  { .state = ERROR_CLIENT,.on_arrival = clientClose},
     [FAILURE_RESPONSE] = { .state = FAILURE_RESPONSE, .on_write_ready = sendFailureResponseClient }, // Write failure response to client
@@ -265,30 +268,20 @@ void setResponseStatus(clientData *data, int error) {
 
 void getAddrInfoCallBack(union sigval sigval) {
     struct dnsReq *req = sigval.sival_ptr; // Get the request from the signal value
-    clientData *data = req->clientData; // Get the client data from the request
 
-
-    if (gai_error(&req->request) != 0) {
-        log(ERROR, "getaddrinfo() failed: %s", gai_strerror(gai_error(&req->request)));
-        if (req->request.ar_result != NULL) {
-            freeaddrinfo(req->request.ar_result); // Free the address info structure
-        }
-        data->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
+    struct dnsRes *dnsResponse = malloc(sizeof(struct dnsRes)); // Allocate memory for the DNS response
+    if (dnsResponse == NULL) {
+        log(ERROR, "Failed to allocate memory for DNS response");
+        req->clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         metrics_add_server_error();
-        data->addressResolved = 1; // Mark the address as resolved (failed)
-        if (selector_notify_block(req->fdSelector, req->fd) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to notify selector for fd %d", req->fd);
-        }
-        return; // Exit if getaddrinfo failed
+        return;
     }
 
-    data->addressResolved = 0; // Mark the address as not resolved (success)
-    data->remoteAddrInfo = req->request.ar_result; // Store the result in client data
-    data->pointerToFree = req->request.ar_result; // Store the pointer to free later
+    dnsResponse->gai_error = gai_error(&req->request); // Get the error code from the request
+    dnsResponse->addrinfo = req->request.ar_result; // Get the address info from the request
 
-    if (selector_notify_block(req->fdSelector, req->fd) != SELECTOR_SUCCESS) {
+    if (selector_notify_block(req->fdSelector, req->fd, dnsResponse) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to notify selector for fd %d", req->fd);
-        data->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
     }
 }
 
@@ -373,6 +366,14 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         sigevent.sigev_notify_function = getAddrInfoCallBack;  // Set the callback function
         sigevent.sigev_value.sival_ptr = dnsRequest;  // Pass the DNS request to the callback
 
+        // Set the interest to OP_NOOP to wait for the DNS resolution callback
+        if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
+            log(ERROR, "Failed to set interest for DNS request key %d", key->fd);
+            data->responseStatus = SOCKS5_GENERAL_FAILURE;
+            metrics_add_server_error();
+            return -1;
+        }
+
         // Call getaddrinfo_a asynchronously
         int gaiResult = getaddrinfo_a(GAI_NOWAIT, request, 1, &sigevent);
         if (gaiResult != 0) {
@@ -380,14 +381,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
                 destination->address.domainName, gai_strerror(gaiResult));
             data->responseStatus = SOCKS5_HOST_UNREACHABLE;
             metrics_add_dns_resolution_error();
-            return -1;
-        }
-
-        // Set the interest to OP_NOOP to wait for the DNS resolution callback
-        if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
-            log(ERROR, "Failed to set interest for DNS request key %d", key->fd);
-            data->responseStatus = SOCKS5_GENERAL_FAILURE;
-            metrics_add_server_error();
             return -1;
         }
 
@@ -455,6 +448,28 @@ int acceptTCPConnection(int servSock) {
     printSocketAddress((struct sockaddr *) &clntAddr, addrBuffer);
 
     return clntSock;
+}
+
+unsigned handleCallBack(struct selector_key *key, void *data) {
+    struct dnsRes *res = data; // Get the DNS request from the data pointer
+    clientData *clientData = key->data; // Get the client data from the request
+
+    if (res->gai_error != 0) {
+        log(ERROR, "getaddrinfo() failed: %s", gai_strerror(res->gai_error));
+        clientData->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
+        metrics_add_server_error();
+        clientData->addressResolved = 1; // Mark the address as resolved (failed)
+        free(res);
+        return sendFailureResponseClient(key); // Exit if getaddrinfo failed
+    }
+
+    clientData->addressResolved = 0; // Mark the address as not resolved (success)
+    clientData->remoteAddrInfo = res->addrinfo; // Store the result in client data
+    clientData->pointerToFree = res->addrinfo; // Store the pointer to free later
+
+    free(res); // Free the DNS response data
+
+    return handleDomainResolve(key, data); // Call the domain resolve handler to continue processing
 }
 
 
@@ -608,10 +623,10 @@ void socks5_write(struct selector_key *key) {
     stm_handler_write(data->stm, key);
 }
 
-void socks5_block(struct selector_key *key) {
-    clientData *data = key->data;
-    clock_gettime(CLOCK_MONOTONIC, &data->last_activity);
-    stm_handler_block(data->stm, key);
+void socks5_block(struct selector_key *key, void *data) {
+    clientData *clientData = key->data;
+    clock_gettime(CLOCK_MONOTONIC, &clientData->last_activity);
+    stm_handler_block(clientData->stm, key, data);
 }
 
 void socks5_timeout(struct selector_key *key) {
