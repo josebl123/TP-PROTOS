@@ -142,11 +142,9 @@ unsigned handleAuthRead(struct selector_key *key) {
     uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT;
     }
     if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection ACA", clntSocket);
         return DONE;
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd);

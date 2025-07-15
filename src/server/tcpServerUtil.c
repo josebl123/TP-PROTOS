@@ -37,7 +37,6 @@ void socks5_relay_write(struct selector_key *key);
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
 void handleTcpClose(  struct selector_key *key) {
-    log(INFO, "TCP Closing client socket %d", key->fd);
     clientData *data =  key->data;
 
     selector_unregister_fd( key->s,data->remoteSocket); // Desregistrar el socket remoto
@@ -79,7 +78,6 @@ void handleTcpClose(  struct selector_key *key) {
     close(key->fd);
 }
 void handleRemoteClose( struct selector_key *key) {
-    log(INFO, "Closing remote socket %d", key->fd);
     close(key->fd);
 }
 void clientClose(const unsigned state, struct selector_key *key) {
@@ -560,8 +558,6 @@ void handleMasterRead(struct selector_key *key) {
     } else {
         log(ERROR, "Unsupported address family");
     }
-
-    log(INFO, "Accepted new connection from:%d", data->origin.port);
 
 
     // Registrar con interés inicial

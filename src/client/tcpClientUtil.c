@@ -67,6 +67,7 @@ void failure_response_print(int response) {
 }
 
 void handleClientClose(const unsigned state, clientData * data) {
+    fflush(stdout);
     free(data->stm);
     free(data->clientBuffer->data);
     free(data->clientBuffer);

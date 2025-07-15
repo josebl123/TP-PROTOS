@@ -442,13 +442,11 @@ unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
 
 
 bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
-    const size_t bufsize = METRICS_BUF_CHUNK;
-    char *buffer = malloc(bufsize);
-    if (!buffer) return false;
+    char *buffer = NULL;
+    size_t size = 0;
 
-    FILE *memfile = fmemopen(buffer, bufsize, "w");
+    FILE *memfile = open_memstream(&buffer, &size);
     if (!memfile) {
-        free(buffer);
         return false;
     }
 
@@ -462,11 +460,10 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
 
     print_user_metrics_tabbed(um, data->authInfo.username, memfile);
     fflush(memfile);
+    fclose(memfile);  // Esto finaliza el stream y setea `size`
 
-    const size_t written = ftell(memfile);
-    fclose(memfile);
 
-    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + size;
     char *full_buf = malloc(total_len);
     if (!full_buf) {
         free(buffer);
@@ -477,9 +474,9 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
     full_buf[1] = RSV;
     full_buf[2] = STATUS_OK;
 
-    const uint32_t body_len = htonl(written);
+    const uint32_t body_len = htonl(size);
     memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, size);
 
     free(buffer);
 
@@ -525,15 +522,11 @@ unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, const unsig
 }
 
 void prepare_global_metrics_buffer(clientConfigData *data) {
-    const size_t bufsize = METRICS_BUF_CHUNK * (1 + MAX_USERS);
-    char *buffer = malloc(bufsize);
-    if (!buffer) return;
+    char *buffer = NULL;
+    size_t size = 0;
 
-    FILE *memfile = fmemopen(buffer, bufsize, "w");
-    if (!memfile) {
-        free(buffer);
-        return;
-    }
+    FILE *memfile = open_memstream(&buffer, &size);
+    if (!memfile) return;
 
     print_global_metrics(memfile);
 
@@ -557,12 +550,11 @@ void prepare_global_metrics_buffer(clientConfigData *data) {
         fprintf(memfile, "\nNO USER CONNECTIONS YET\n\n");
     }
     fprintf(memfile, "\n==== END OF ALL USER CONNECTIONS ====\n\n");
-    fflush(memfile);
 
-    const size_t written = ftell(memfile);
+    fflush(memfile);
     fclose(memfile);
 
-    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + size;
     char *full_buf = malloc(total_len);
     if (!full_buf) {
         free(buffer);
@@ -572,9 +564,9 @@ void prepare_global_metrics_buffer(clientConfigData *data) {
     full_buf[0] = CONFIG_VERSION;
     full_buf[1] = RSV;
     full_buf[2] = STATUS_OK;
-    const uint32_t body_len = htonl(written);
+    const uint32_t body_len = htonl(size);
     memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, size);
 
     free(buffer);
 
@@ -584,23 +576,17 @@ void prepare_global_metrics_buffer(clientConfigData *data) {
 }
 
 void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
-    const size_t bufsize = METRICS_BUF_CHUNK;
-    char *buffer = malloc(bufsize);
-    if (!buffer) return;
+    char *buffer = NULL;
+    size_t size = 0;
 
-    FILE *memfile = fmemopen(buffer, bufsize, "w");
-    if (!memfile) {
-        free(buffer);
-        return;
-    }
+    FILE *memfile = open_memstream(&buffer, &size);
+    if (!memfile) return;
 
     print_user_metrics_tabbed(um, data->target_username, memfile);
     fflush(memfile);
-
-    const size_t written = ftell(memfile);
     fclose(memfile);
 
-    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + written;
+    const size_t total_len = METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH + size;
     char *full_buf = malloc(total_len);
     if (!full_buf) {
         free(buffer);
@@ -610,9 +596,9 @@ void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
     full_buf[0] = CONFIG_VERSION;
     full_buf[1] = RSV;
     full_buf[2] = STATUS_OK;
-    const uint32_t body_len = htonl(written);
+    const uint32_t body_len = htonl(size);
     memcpy(full_buf + METRICS_WRITE_HEADER_SIZE, &body_len, METRICS_WRITE_PAYLOAD_LENGTH);
-    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, written);
+    memcpy(full_buf + METRICS_WRITE_HEADER_SIZE + METRICS_WRITE_PAYLOAD_LENGTH, buffer, size);
 
     free(buffer);
 
