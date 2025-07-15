@@ -18,6 +18,8 @@
 
 #define CONFIG_VERSION 0x01
 
+#define METRICS_FAILURE_RESPONSE_SIZE 3
+
 
 typedef enum {
     STATUS_OK = 0x00,
@@ -52,6 +54,7 @@ typedef enum {
     ADMIN_REMOVE_USER_READ,
     ADMIN_MAKE_ADMIN,            // Convertir usuario en admin
     ADMIN_MAKE_ADMIN_READ,
+    SEND_FAILURE_RESPONSE,
     BAD_REQUEST_ERROR,
 
     CONFIG_DONE,                 // Finaliza sesión/config

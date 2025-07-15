@@ -36,7 +36,7 @@ unsigned handleHelloRead(struct selector_key *key) {
     size_t writeLimit;
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
-    if (numBytesRcvd < 0) { //TODO en este caso que se hace? Libero todo?
+    if (numBytesRcvd < 0) {
         log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT;
     }

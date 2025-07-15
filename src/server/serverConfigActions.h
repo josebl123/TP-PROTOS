@@ -21,6 +21,7 @@ unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts);
 unsigned attemptAdminMetricsWrite(struct selector_key *key);
 unsigned attemptUserMetricsWrite(struct selector_key *key);
 unsigned genericWrite(struct selector_key * key, unsigned next_state, unsigned current_state);
+unsigned send_metrics_fail_response(struct selector_key * key);
 
 
 #endif //SERVERCONFIGACTIONS_H

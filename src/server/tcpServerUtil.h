@@ -79,7 +79,7 @@ typedef struct clientData clientData;
 struct originInfo {
   uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
   union {
-    uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
+    uint32_t ipv4; // IPv4 address in network byte order
     struct in6_addr ipv6; // IPv6 address
   } address;
   uint16_t port; // Origin port
@@ -88,7 +88,7 @@ struct originInfo {
 struct destinationInfo {
     uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
     union {
-        uint32_t ipv4; // IPv4 address in network byte order TODO make these pointers, memory efficiency
+        uint32_t ipv4; // IPv4 address in network byte order
         struct in6_addr ipv6; // IPv6 address
         char domainName[256]; // Domain name
     } address;

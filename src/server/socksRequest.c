@@ -173,7 +173,7 @@ unsigned handleRequestWrite(struct selector_key *key) {
         log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
-    if (numBytesSent < (localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST) ) { //todo should preserve the to-send bytes in a buffer?
+    if (numBytesSent < (localAddr.ss_family == AF_INET ? SOCKS5_IPV4_REQUEST: SOCKS5_IPV6_REQUEST) ) {
         return REQUEST_WRITE;
     }
     // Log the number of bytes sent
@@ -481,10 +481,8 @@ unsigned handleDomainResolve(struct selector_key *key, void *data) {
 
         if (selector_fd_set_nio(remoteSocket) < 0) {
             log(ERROR, "Failed to set non-blocking mode for address %s: %s", addrBuffer, strerror(errno));
-            close(remoteSocket);
-            remoteSocket = -1; // Reset to indicate failure
             clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-            continue;
+            return sendFailureResponseClient(key); // Send failure response to client
         }
 
         connected = connect(remoteSocket, addr->ai_addr, addr->ai_addrlen);
@@ -505,17 +503,13 @@ unsigned handleDomainResolve(struct selector_key *key, void *data) {
             log(INFO, "Connected immediately");
             if (remoteSocketInit(remoteSocket, key, RELAY_REMOTE, OP_NOOP) < 0) {
                 log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
-                close(remoteSocket);
-                remoteSocket = -1;
                 clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-                continue;
+                return sendFailureResponseClient(key);
             }
             if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
                 log(ERROR, "Failed to set interest for client socket %d", key->fd);
-                close(remoteSocket); //todo should be unregistered from selector, bear in mind edge case that next is null, double unregister will happen
-                remoteSocket = -1; // Reset to indicate failure
                 clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-                continue;
+                return sendFailureResponseClient(key);
             }
             return handleRequestWrite(key);
         }
@@ -524,17 +518,13 @@ unsigned handleDomainResolve(struct selector_key *key, void *data) {
         // Successfully connected to a new address
         if (remoteSocketInit(remoteSocket, key, RELAY_CONNECTING, OP_WRITE) < 0) {
             log(ERROR, "Failed to initialize remote socket for address %s", addrBuffer);
-            close(remoteSocket);
-            remoteSocket = -1;
             clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-            continue;
+            return sendFailureResponseClient(key); // Send failure response to client
         }
         if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for client socket %d", key->fd);
-            close(remoteSocket); //todo should be unregistered from selector, bear in mind edge case that next is null, double unregister will happen
-            remoteSocket = -1; // Reset to indicate failure
             clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-            continue;
+            return sendFailureResponseClient(key); // Send failure response to client
         }
         return DOMAIN_RESOLVING; // Change to the connecting state
     }

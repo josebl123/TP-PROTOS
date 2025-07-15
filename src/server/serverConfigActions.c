@@ -65,22 +65,14 @@ int removeUser(char * username, uint8_t ulen) {
             remove_user_metrics(socksArgs->users[i].name);
             if (i != last_idx) {
                 // Libera el usuario a borrar
-                // free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
-                // free(socksArgs->users[i].pass);
                 // Copia el último usuario en la posición borrada
-                if (socksArgs->users[i].is_added) {
-                    free(socksArgs->users[i].name);
-                    free(socksArgs->users[i].pass);
-                }
                 socksArgs->users[i].name = socksArgs->users[last_idx].name;
                 socksArgs->users[i].pass = socksArgs->users[last_idx].pass;
                 socksArgs->users[i].is_admin = socksArgs->users[last_idx].is_admin;
-            } else {
-                // Si es el último, solo libera
-                if (socksArgs->users[i].is_added) {
-                    free(socksArgs->users[i].name); //fixme:da error si lo descomento y fue declarado originalmente
-                    free(socksArgs->users[i].pass);
-                }
+            }
+            if (socksArgs->users[i].is_added) {
+                free(socksArgs->users[i].name);
+                free(socksArgs->users[i].pass);
             }
             // Marca el último como vacío
             socksArgs->users[last_idx].name = NULL;
@@ -121,7 +113,6 @@ unsigned addUser( char * username, const uint8_t ulen,  char *password, const ui
             socksArgs->users[i].pass[passlen] = '\0'; // Initialize to empty string
             socksArgs->users[i].is_admin = is_admin;
             socksArgs->users[i].is_added = true; // Mark as added
-            //TODO: need to free the mallocs. Seems complicated but is not really important for now
             return true;
         }
     }
@@ -161,7 +152,7 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
 
     if (readAvailable < BUFFER_CHANGE_REQUEST_SIZE) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
     // Saltar los primeros 4 bytes
-    buffer_read_adv(data->clientBuffer, BUFFER_CHANGE_REQUEST_SIZE -1); //TODO: MAGIC NUMBER
+    buffer_read_adv(data->clientBuffer, BUFFER_CHANGE_REQUEST_SIZE -1);
 
     // Leer el nuevo buffer_size (por ejemplo, como uint32_t en network order)
     const uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->clientBuffer, &available));
@@ -486,9 +477,34 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
     return true;
 }
 
-void send_metrics_fail_response(const int clntSocket) {
-    const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_SERVER_GENERAL_FAILURE };
-    send(clntSocket, response, sizeof(response), 0);
+unsigned send_metrics_fail_response(struct selector_key * key) {
+    const clientConfigData *data = key->data;
+    const int clntSocket = key->fd;
+
+    size_t available;
+    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+
+    ssize_t bytesSent = send(clntSocket, ptr, available, 0);
+    if (bytesSent < 0) {
+        if (errno == ECONNRESET) {
+            log(INFO, "Client socket %d closed connection", clntSocket);
+            return CONFIG_DONE; // El cliente cerró la conexión
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return SEND_FAILURE_RESPONSE; // El socket está bloqueado, intenta de nuevo
+        }
+        log(ERROR, "Failed to send metrics failure response to client socket %d: %s", clntSocket, strerror(errno));
+        return ERROR_CONFIG_CLIENT; // Error al enviar la respuesta de fallo
+    } else if (bytesSent < METRICS_FAILURE_RESPONSE_SIZE) {
+        buffer_read_adv(data->clientBuffer, bytesSent);
+        return SEND_FAILURE_RESPONSE; // No se envió , sigamos despues
+    } else if (bytesSent == 0) {
+        log(INFO, "Client socket %d closed connection after sending metrics failure response", clntSocket);
+        return CONFIG_DONE; // El cliente cerró la conexión
+    } else {
+        log(INFO, "Metrics failure response sent to client socket %d", clntSocket);
+        return CONFIG_DONE;
+    }
 }
 
 unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, const unsigned next_state) {
@@ -607,7 +623,7 @@ void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
     data->metrics_buf_offset = 0;
 }
 
-unsigned attemptAdminMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
+unsigned attemptAdminMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
@@ -638,14 +654,17 @@ unsigned handleUserMetricsWrite(struct selector_key *key) {
     return send_metrics_buffer(key->data, key->fd, USER_METRICS);
 }
 
-unsigned attemptUserMetricsWrite(struct selector_key *key) { //TODO:agregar el ewouldblock a esto
+unsigned attemptUserMetricsWrite(struct selector_key *key) {
     clientConfigData *data = key->data;
     const int clntSocket = key->fd;
 
     if (data->metrics_buf == NULL) {
         if (!prepare_user_metrics_buffer_from_auth(data)) {
-            send_metrics_fail_response(clntSocket);
-            return CONFIG_DONE;
+            const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_SERVER_GENERAL_FAILURE };
+            buffer_reset(data->clientBuffer);
+            memcpy(data->clientBuffer->data, response, METRICS_FAILURE_RESPONSE_SIZE);
+            buffer_write_adv(data->clientBuffer, METRICS_FAILURE_RESPONSE_SIZE);
+            return send_metrics_fail_response(key);
         }
     }
 

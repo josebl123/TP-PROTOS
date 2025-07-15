@@ -493,6 +493,10 @@ static const struct state_definition states_config[] = {
         .state = ADMIN_MAKE_ADMIN_READ,
         .on_read_ready = handleAdminMakeAdminRead,
     },
+    [SEND_FAILURE_RESPONSE] = {
+        .state = SEND_FAILURE_RESPONSE,
+        .on_write_ready = send_metrics_fail_response,
+    },
     [CONFIG_DONE] = {
         .state = CONFIG_DONE,
         .on_arrival = handleConfigDone,

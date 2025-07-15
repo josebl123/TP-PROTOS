@@ -232,7 +232,6 @@ int remoteSocketInit(const int remoteSocket, const struct selector_key *key, int
     if (selector_register(key->s, remoteSocket, &relay_handler, intertest, data) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to register remote socket %d with selector", remoteSocket);
         data->responseStatus = SOCKS5_GENERAL_FAILURE;
-        close(remoteSocket);
         return -1;
     }
 
