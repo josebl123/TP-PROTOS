@@ -107,9 +107,9 @@ struct dnsRes {
 
 struct dnsReq{
     clientData * clientData; // Pointer to the client data structure
-    struct gaicb request;
+    struct gaicb *request;
     fd_selector fdSelector;
-    struct addrinfo hints; // Pointer to the address info for the DNS request
+    struct addrinfo *hints; // Pointer to the address info for the DNS request
     int fd; // File descriptor for the DNS request
     char port[6]; // Port string for the DNS request
 };
