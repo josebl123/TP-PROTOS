@@ -6,7 +6,7 @@ Este documento describe el protocolo administrativo del servidor SOCKS5 MAEP-S5,
 
 ### Protocolos de Comunicación - Grupo 16 - Primer Cuatrimestre 2025
 
-El informe de este trabajo practico se encuentra en el directorio `docs/` del repositorio, en el archivo `informe.pdf`.
+El informe de este trabajo practico se encuentra en el directorio `docs/` del repositorio, en el archivo `Informe - TPE - Grupo 16.pdf`.
 
 ## Índice
 
