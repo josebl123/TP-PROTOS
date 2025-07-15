@@ -6,6 +6,8 @@ Este documento describe el protocolo administrativo del servidor SOCKS5 MAEP-S5,
 
 ### Protocolos de Comunicación - Grupo 16 - Primer Cuatrimestre 2025
 
+El informe de este trabajo practico se encuentra en el directorio `docs/` del repositorio, en el archivo `informe.pdf`.
+
 ## Índice
 
 - [Protocolo Administrativo](#protocolo-administrativo)
@@ -49,8 +51,10 @@ VERSION RSV STATUS ROLE
 VERSION RSV STATUS
 ```
 
-- `STATUS`: `0x00 = OK`, `0x01 = Error`
-- Luego se envían métricas en **texto plano**.
+- `STATUS`:
+  - `0x00 = Success`
+  - `0x01 = General server error`
+  - `0x02 = Bad request`- Luego se envían métricas en **texto plano**.
 
 ---
 
@@ -74,8 +78,10 @@ VERSION RSV STATUS
 ```
 
 - `STATUS`:
-    - `0x00 = Stats Success` → métricas en texto
-    - `0x01 = Config Success` → espera comandos binarios
+  - `0x00 = Success`
+  - `0x01 = General server error`
+  - `0x02 = Bad request`    
+  - `0xff = Config Success` → espera comandos binarios
 
 ---
 
