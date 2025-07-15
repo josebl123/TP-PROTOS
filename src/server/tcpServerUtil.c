@@ -350,6 +350,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         dnsRequest->hints.ai_protocol = IPPROTO_TCP; // Set the protocol for the DNS request
         dnsRequest->hints.ai_family = AF_UNSPEC; // Allow both IPv4 and IPv6
         dnsRequest->hints.ai_socktype = SOCK_STREAM; // TCP socket type
+        dnsRequest->hints.ai_flags = AI_ADDRCONFIG; // <- Mejora compatibilidad en sistemas modernos
         dnsRequest->request.ar_request = &dnsRequest->hints; // Set the request pointer
         dnsRequest->request.ar_result = NULL; // Initialize result to NULL
         dnsRequest->clientData = data; // Set the client data for the DNS request
@@ -439,6 +440,7 @@ int acceptTCPConnection(int servSock) {
         log(ERROR, "accept() failed");
         return -1;
     }
+    metrics_new_connection(); // Registrar nueva conexión anónima
 
     // clntSock is connected to a client!
     printSocketAddress((struct sockaddr *) &clntAddr, addrBuffer);

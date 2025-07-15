@@ -74,8 +74,7 @@ unsigned handleAuthConfigWrite(struct selector_key *key) {
     size_t availableBytes;
     const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &availableBytes);
     const ssize_t sent = send(clntSocket,ptr, availableBytes, 0);
-    printf("availableBytes: %zu, ptr: %p, clntSocket: %d\n", availableBytes, ptr, clntSocket);
-    printf("sent %zd bytes to client socket %d\n", sent, clntSocket);
+
     if (sent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
@@ -625,8 +624,6 @@ void handleConfigRead(struct selector_key *key) {
     }
 
     getpeername(new_socket, (struct sockaddr*)&address, &addrlen);
-    printf("New config connection: fd=%d, ip=%s, port=%d\n",
-           new_socket, inet_ntoa(address.sin_addr), ntohs(address.sin_port));
 
     clientConfigData *data = calloc(1, sizeof(clientConfigData));
     if (!data) {
@@ -645,7 +642,6 @@ void handleConfigRead(struct selector_key *key) {
         return;
     }
 
-    printf("Client socket %d registered\n", new_socket);
 }
 
 int acceptTCPConfigConnection(const int servSock) {

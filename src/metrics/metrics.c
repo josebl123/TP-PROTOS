@@ -5,6 +5,7 @@
 #include <time.h>
 #include <string.h>
 #include <netinet/in.h> // para struct in_addr
+#include "server/server.h"
 
 
 #include "server/tcpServerUtil.h"
@@ -32,6 +33,9 @@ void metrics_init(void) {
 void metrics_new_connection(void) {
     metrics.total_connections++;
     metrics.current_connections++;
+    if (metrics.current_connections > MAX_CONNECTIONS) {
+        selector_set_interest(selector, master_socket, OP_NOOP); // Disable listening for new connections
+    }
 }
 
 void metrics_add_host_unreachable_error(void) {
@@ -45,6 +49,7 @@ void add_new_login_error(void) {
 void metrics_connection_closed(void) {
     if (metrics.current_connections > 0) {
         metrics.current_connections--;
+        selector_set_interest(selector, master_socket, OP_READ); // Re-enable listening for new connections
     }
 }
 

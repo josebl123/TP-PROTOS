@@ -10,12 +10,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
+#include <logger.h>
 #include <unistd.h>   //close
 #include <sys/types.h>
 
 #include <sys/time.h> //FD_SET, FD_ISSET, FD_ZERO macros
 #include "selector.h"
 #include <signal.h>
+#include <string.h>
 
 #include "tcpServerUtil.h"
 #include "metrics/metrics.h"
@@ -27,12 +29,13 @@
 #define FALSE  0
 #define PORT "1080"
 #define CONFIG_PORT "8080"
-#define INITIAL_MAX_CLIENTS 1000
+#define INITIAL_MAX_FDS 1024
 #define MAX_BUFFER_SIZE 4096 // 4MB, maximum buffer size for client and remote buffers
 #define DEFAULT_TIMEOUT 5
 
 struct fdselector *selector = NULL; // Global selector variable
 struct socks5args *socksArgs = NULL; // Global args variable
+int master_socket = -1; // Global master socket for client connections
 uint32_t bufferSize = MAX_BUFFER_SIZE; // Global buffer size
 
 void cleanup(const int signum) {
@@ -58,6 +61,7 @@ int main(const int argc, char *argv[])
 
     sigaction(SIGINT, &sa, NULL);  // Ctrl+C
     sigaction(SIGTERM, &sa, NULL); // kill normal
+    signal(SIGPIPE, SIG_IGN);  // Ignorar la señal SIGPIPE
 
     const struct selector_init conf = {
         .signal = SIGUSR1,
@@ -69,14 +73,14 @@ int main(const int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    selector = selector_new(INITIAL_MAX_CLIENTS);
+    selector = selector_new(INITIAL_MAX_FDS);
 
     if (selector == NULL) {
         perror("Failed to create selector");
         exit(EXIT_FAILURE);
     }
 
-    const int master_socket = setupTCPServerSocket( socksArgs->socks_addr, socksArgs->socks_port);
+    master_socket = setupTCPServerSocket( socksArgs->socks_addr, socksArgs->socks_port);
     if (master_socket < 0) {
         perror("Failed to setup TCP server socket");
         exit(EXIT_FAILURE);
