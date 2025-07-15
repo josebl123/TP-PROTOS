@@ -70,7 +70,7 @@ unsigned connect_write(struct selector_key * key) {
     return RELAY_REMOTE; // Change to the relay remote state
 }
 
-unsigned send_failure_response(client_data *data, int clnt_socket, unsigned error, struct selector_key *key) {
+unsigned send_failure_response(client_data *data, int clnt_socket, unsigned error, unsigned done, struct selector_key *key) {
 
     char response[SOCKS5_MAX_REQUEST_RESPONSE] = {0}; // Buffer for the response
     response[0] = SOCKS_VERSION; // Versión del protocolo SOCKS
@@ -88,18 +88,22 @@ unsigned send_failure_response(client_data *data, int clnt_socket, unsigned erro
             }
             return FAILURE_RESPONSE; // Return to retry later
         }
+        if (errno == ECONNRESET || errno == ECONNREFUSED || errno == EPIPE) {
+            log(INFO, "Client socket %d closed connection: %s", clnt_socket, strerror(errno));
+            return DONE; // Client closed the connection
+        }
         log(ERROR, "send() failed on client socket %d: %s", clnt_socket, strerror(errno));
     }
     return error;
 }
 
 unsigned send_failure_response_client(struct selector_key *key) {
-    return send_failure_response(key->data, key->fd, ERROR_CLIENT, key);
+    return send_failure_response(key->data, key->fd, ERROR_CLIENT, DONE, key);
 }
 
 unsigned send_failure_response_remote(struct selector_key *key) {
     client_data *data = key->data;
-    return send_failure_response(data, data->client_socket, RELAY_ERROR, key);
+    return send_failure_response(data, data->client_socket, RELAY_ERROR, RELAY_DONE, key);
 }
 
 unsigned handle_request_write(struct selector_key *key) {
