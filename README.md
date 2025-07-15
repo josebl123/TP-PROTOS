@@ -7,6 +7,8 @@ Este documento describe el protocolo administrativo del servidor SOCKS5 MAEP-S5,
 ### Protocolos de Comunicación - Grupo 16 - Primer Cuatrimestre 2025
 
 El informe de este trabajo practico se encuentra en el directorio `docs/` del repositorio, en el archivo `informe.pdf`.
+El código fuente del servidor y cliente, como se encuentra en el directorio `src/` del repositorio, y los ejecutables generados se encuentran en el directorio `bin/`.
+Los archivos de construcción y se encuentra directamente en la raíz del repositorio, en el archivo `Makefile`.
 
 ## Índice
 
@@ -199,7 +201,11 @@ VERSION RSV CODE STATUS
 
 ```bash
 make clean all
+```
 
+Esto generara los archivos ejecutables `server` y `client` en el directorio `./bin/`.
+
+```bash
 ./bin/server -a admin:pass
 ./bin/client --login admin:pass -g
 ```
