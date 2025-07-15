@@ -26,31 +26,31 @@
 #define AUTH_REQ_USERLEN_OFFSET     2
 #define AUTH_REQ_USERNAME_OFFSET    3
 
-unsigned handleAuthRead(clientData *data) {
+unsigned handle_auth_read(client_data *data) {
 
-    size_t writeLimit;
-    uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
+    size_t write_limit;
+    uint8_t *write_ptr = buffer_write_ptr(data->client_buffer, &write_limit);
+    ssize_t num_bytes_rcvd = recv(clnt_socket, write_ptr, write_limit, 0);
 
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
+    if (num_bytes_rcvd <= 0) {
+        if (num_bytes_rcvd == 0) {
                   return DONE;
         } else {
-            log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+            log(ERROR, "recv() failed on client socket %d: %s", clnt_socket, strerror(errno));
             return ERROR_CLIENT;
         }
     }
 
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
 
     size_t available;
-    uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &available);
-    if (available < AUTH_HEADER_LEN) return handleAuthRead(data);
+    uint8_t *read_ptr = buffer_read_ptr(data->client_buffer, &available);
+    if (available < AUTH_HEADER_LEN) return handle_auth_read(data);
 
-    uint8_t version = readPtr[AUTH_VERSION_OFFSET];
-    uint8_t rsv     = readPtr[AUTH_RSV_OFFSET];
-    uint8_t status  = readPtr[AUTH_STATUS_OFFSET];
-    uint8_t role    = readPtr[AUTH_ROLE_OFFSET];
+    uint8_t version = read_ptr[AUTH_VERSION_OFFSET];
+    uint8_t rsv     = read_ptr[AUTH_RSV_OFFSET];
+    uint8_t status  = read_ptr[AUTH_STATUS_OFFSET];
+    uint8_t role    = read_ptr[AUTH_ROLE_OFFSET];
 
     if (version != VERSION || rsv != RSV) {
         log(ERROR, "Invalid version or reserved byte");
@@ -58,7 +58,7 @@ unsigned handleAuthRead(clientData *data) {
     }
 
 
-    buffer_read_adv(data->clientBuffer, AUTH_HEADER_LEN);
+    buffer_read_adv(data->client_buffer, AUTH_HEADER_LEN);
 
 
     if (status != STATUS_OK) {
@@ -72,53 +72,53 @@ unsigned handleAuthRead(clientData *data) {
         }
 
         printf("## Authentication successful for user role\n");
-        return handleStatsRead(data);
+        return handle_stats_read(data);
     }
     if (role == ROLE_ADMIN) {
-        buffer_reset(data->clientBuffer);
+        buffer_reset(data->client_buffer);
         printf("## Authentication successful for Admin role\n");
 
-        return handleRequestWrite(data);
+        return handle_request_write(data);
     }
 
     log(ERROR, "Unknown role received: %02X", role);
 
     return ERROR_CLIENT;
 }
-unsigned handleAuthConfigSend(clientData *data, uint8_t *response, size_t responseSize) {
+unsigned handle_auth_config_send(client_data *data, uint8_t *response, size_t responseSize) {
 
-    ssize_t bytesSent = send(clntSocket, response, responseSize, 0);
-    if (bytesSent < 0) {
-        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+    ssize_t bytes_sent = send(clnt_socket, response, responseSize, 0);
+    if (bytes_sent < 0) {
+        log(ERROR, "send() failed on client socket %d: %s", clnt_socket, strerror(errno));
         free(response);
         return ERROR_CLIENT;
     }
-    if (bytesSent == 0) {
+    if (bytes_sent == 0) {
         free(response);
         return DONE; // Connection closed
     }
 
-    if ((size_t)bytesSent < responseSize) {
-        return handleAuthConfigSend(data, response + bytesSent, responseSize - bytesSent); // Partial send, wait for next write
+    if ((size_t)bytes_sent < responseSize) {
+        return handle_auth_config_send(data, response + bytes_sent, responseSize - bytes_sent); // Partial send, wait for next write
     }
 
     free(response);
-    return handleAuthRead(data);
+    return handle_auth_read(data);
 }
 
-unsigned handleAuthWrite(clientData *data) {
+unsigned handle_auth_write(client_data *data) {
 
     if (data->args->username == NULL || data->args->password == NULL) {
         log(ERROR, "Username or password not set");
         return ERROR_CLIENT;
     }
 
-    uint8_t usernameLength = strlen(data->args->username);
-    uint8_t passwordLength = strlen(data->args->password);
+    uint8_t username_length = strlen(data->args->username);
+    uint8_t password_length = strlen(data->args->password);
 
-    int totalLength = AUTH_REQ_USERNAME_OFFSET + usernameLength + 1 + passwordLength;
+    int total_length = AUTH_REQ_USERNAME_OFFSET + username_length + 1 + password_length;
 
-    uint8_t *response = malloc(totalLength);
+    uint8_t *response = malloc(total_length);
     if (response == NULL) {
         log(ERROR, "Memory allocation failed");
         return ERROR_CLIENT;
@@ -127,11 +127,11 @@ unsigned handleAuthWrite(clientData *data) {
     int offset = 0;
     response[offset++] = VERSION;
     response[offset++] = RSV;
-    response[offset++] = usernameLength;
-    memcpy(response + offset, data->args->username, usernameLength);
-    offset += usernameLength;
-    response[offset++] = passwordLength;
-    memcpy(response + offset, data->args->password, passwordLength);
+    response[offset++] = username_length;
+    memcpy(response + offset, data->args->username, username_length);
+    offset += username_length;
+    response[offset++] = password_length;
+    memcpy(response + offset, data->args->password, password_length);
 
-   return handleAuthConfigSend(data, response, totalLength);
+   return handle_auth_config_send(data, response, total_length);
 }

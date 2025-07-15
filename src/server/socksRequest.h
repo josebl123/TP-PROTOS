@@ -6,15 +6,15 @@
 #define SOCKSREQUEST_H
 #include "selector.h"
 
-unsigned connectWrite(struct selector_key *key);
+unsigned connect_write(struct selector_key *key);
 // Handle reading the request from the client
-unsigned handleRequestRead(struct selector_key *key);
-unsigned handleRequestWrite(struct selector_key *key);
+unsigned handle_request_read(struct selector_key *key);
+unsigned handle_request_write(struct selector_key *key);
 
-unsigned handleDomainResolve(struct selector_key *key, void *data);
-unsigned handleCallBack(struct selector_key *key, void *data);
+unsigned handle_domain_resolve(struct selector_key *key, void *data);
+unsigned handle_callback(struct selector_key *key, void *data);
 
-unsigned sendFailureResponseClient(struct selector_key *key);
-unsigned sendFailureResponseRemote(struct selector_key *key);
+unsigned send_failure_response_client(struct selector_key *key);
+unsigned send_failure_response_remote(struct selector_key *key);
 
 #endif //SOCKSREQUEST_H

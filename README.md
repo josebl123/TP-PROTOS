@@ -6,7 +6,7 @@ Este documento describe el protocolo administrativo del servidor SOCKS5 MAEP-S5,
 
 ### Protocolos de Comunicación - Grupo 16 - Primer Cuatrimestre 2025
 
-El informe de este trabajo practico se encuentra en el directorio `docs/` del repositorio, en el archivo `informe.pdf`.
+El informe de este trabajo practico se encuentra en el directorio `docs/` del repositorio, en el archivo `Informe - TPE - Grupo 16.pdf`.
 El código fuente del servidor y cliente, como se encuentra en el directorio `src/` del repositorio, y los ejecutables generados se encuentran en el directorio `bin/`.
 Los archivos de construcción y se encuentra directamente en la raíz del repositorio, en el archivo `Makefile`.
 
@@ -92,12 +92,12 @@ VERSION RSV STATUS
 Formato general:
 
 ```
-VERSION RSV CODE ULEN USERNAME PLEN PASSWORD BUFFERSIZE
+VERSION RSV CODE ULEN USERNAME PLEN PASSWORD buffer_size
 ```
 
 | CODE | Acción                   | Descripción                                                     |
 |------|--------------------------|-----------------------------------------------------------------|
-| 0x00 | Cambiar buffer           | Solo se rellena `BUFFERSIZE` (`uint32_t` en network byte order) |
+| 0x00 | Cambiar buffer           | Solo se rellena `buffer_size` (`uint32_t` en network byte order) |
 | 0x01 | Accepts no-auth          | Ignora username/password                                        |
 | 0x02 | Not accepts no-auth      | Ignora username/password                                        |
 | 0x03 | Agregar usuario          | Requiere `USERNAME_LEN` `USERNAME`  `PASSWORD_LEN` `PASSWORD`    |

@@ -172,10 +172,10 @@ void user_connection_init(user_connection *conn) {
 
 
 void fill_ip_address_from_origin(ip_address *dest, struct originInfo *origin) {
-    if (origin->addressType == IPV4) {
+    if (origin->address_type == IPV4) {
         dest->is_ipv6 = 0;
         dest->addr.ipv4.s_addr = origin->address.ipv4; // Asigno el uint32_t al campo s_addr
-    } else if (origin->addressType == IPV6) {
+    } else if (origin->address_type == IPV6) {
         dest->is_ipv6 = 1;
         dest->addr.ipv6 = origin->address.ipv6;
     } else {

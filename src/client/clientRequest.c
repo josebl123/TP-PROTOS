@@ -23,42 +23,42 @@
 #define OPTION_CONFIG 0xFF
 #include "tcpClientUtil.h"
 
-unsigned handleRequestRead(clientData *data) {
+unsigned handle_request_read(client_data *data) {
 
-    size_t writeLimit;
-    uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
+    size_t write_limit;
+    uint8_t *write_ptr = buffer_write_ptr(data->client_buffer, &write_limit);
+    const ssize_t num_bytes_rcvd = recv(clnt_socket, write_ptr, write_limit, 0);
 
 
-    if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+    if (num_bytes_rcvd < 0) {
+        log(ERROR, "recv() failed on client socket %d: %s", clnt_socket, strerror(errno));
         return ERROR_CLIENT;
     }
-    if (numBytesRcvd == 0) {
+    if (num_bytes_rcvd == 0) {
         return DONE;
     }
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
     size_t available;
-    buffer_read_ptr(data->clientBuffer, &available);
+    buffer_read_ptr(data->client_buffer, &available);
     if (available < RESPONSE_HEADER_LENGTH) {
-        return handleRequestRead(data); // Not enough data yet
+        return handle_request_read(data); // Not enough data yet
     }
 
-    if(buffer_read(data->clientBuffer) != VERSION) {
-        log(ERROR, "Invalid version in authentication request from client socket %d", clntSocket);
+    if(buffer_read(data->client_buffer) != VERSION) {
+        log(ERROR, "Invalid version in authentication request from client socket %d", clnt_socket);
         return ERROR_CLIENT;
     }
-    if (buffer_read(data->clientBuffer) != RSV) {
-        log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
+    if (buffer_read(data->client_buffer) != RSV) {
+        log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clnt_socket);
         return ERROR_CLIENT;
     }
 
-    uint8_t status = buffer_read(data->clientBuffer);
+    uint8_t status = buffer_read(data->client_buffer);
     if(status == OPTION_CONFIG) {
-        return handleConfigWrite(data);
+        return handle_config_write(data);
     }
     if(status == OPTION_STATS){
-        return handleStatsRead(data);
+        return handle_stats_read(data);
     }
     if (status != OPTION_STATS && status != OPTION_CONFIG) {
         failure_response_print(status);
@@ -67,50 +67,50 @@ unsigned handleRequestRead(clientData *data) {
     return ERROR_CLIENT;
 }
 
-unsigned handleRequestSend(clientData * data) {
-    size_t availableBytes;
-    uint8_t *readPtr = buffer_read_ptr(data->clientBuffer, &availableBytes);
-    ssize_t bytesSent = send(clntSocket, readPtr, availableBytes, 0);
-    if (bytesSent < 0) {
-        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+unsigned handle_request_send(client_data * data) {
+    size_t available_bytes;
+    uint8_t *read_ptr = buffer_read_ptr(data->client_buffer, &available_bytes);
+    ssize_t bytes_sent = send(clnt_socket, read_ptr, available_bytes, 0);
+    if (bytes_sent < 0) {
+        log(ERROR, "send() failed on client socket %d: %s", clnt_socket, strerror(errno));
         return ERROR_CLIENT;
     }
-    if (bytesSent == 0) {
+    if (bytes_sent == 0) {
         return DONE;
 
     }
-    buffer_read_adv(data->clientBuffer, bytesSent); // Avanzar el puntero de lectura del buffer
-    if((size_t)bytesSent < availableBytes) {
+    buffer_read_adv(data->client_buffer, bytes_sent); // Avanzar el puntero de lectura del buffer
+    if((size_t)bytes_sent < available_bytes) {
       log(INFO, "Partial send, waiting for next write");
-        return handleRequestSend(data);
+        return handle_request_send(data);
     }
-    return handleRequestRead(data);
+    return handle_request_read(data);
 }
-unsigned handleRequestWrite(clientData *data) {
+unsigned handle_request_write(client_data *data) {
 
 
-    unsigned long usernameLength = data->args->target_user ? strlen(data->args->target_user) : 0;
-    int totalLength = HEADER_LENGTH + usernameLength + 1; // +1 por el null terminator
+    unsigned long username_length = data->args->target_user ? strlen(data->args->target_user) : 0;
+    int total_length = HEADER_LENGTH + username_length + 1; // +1 por el null terminator
 
-    buffer_reset(data->clientBuffer);
-    size_t availableBytes;
-    uint8_t * writePtr = buffer_write_ptr(data->clientBuffer, &availableBytes);
-    if( availableBytes < (size_t)totalLength ){
-        log(ERROR, "Not enough space in buffer to write request: %d bytes needed, %zu available", totalLength, availableBytes);
+    buffer_reset(data->client_buffer);
+    size_t available_bytes;
+    uint8_t * write_ptr = buffer_write_ptr(data->client_buffer, &available_bytes);
+    if( available_bytes < (size_t)total_length ){
+        log(ERROR, "Not enough space in buffer to write request: %d bytes needed, %zu available", total_length, available_bytes);
         return ERROR_CLIENT;
     }
 
-    writePtr[VERSION_OFFSET]         = VERSION;
-    writePtr[RSV_OFFSET]             = RSV;
-    writePtr[OPTION_OFFSET]          = data->args->stats ? OPTION_STATS : OPTION_CONFIG;
-    writePtr[USERNAME_LENGTH_OFFSET] = usernameLength;
+    write_ptr[VERSION_OFFSET]         = VERSION;
+    write_ptr[RSV_OFFSET]             = RSV;
+    write_ptr[OPTION_OFFSET]          = data->args->stats ? OPTION_STATS : OPTION_CONFIG;
+    write_ptr[USERNAME_LENGTH_OFFSET] = username_length;
 
 
 
-    if (usernameLength > 0) {
-        memcpy(writePtr + HEADER_LENGTH, data->args->target_user, usernameLength);
+    if (username_length > 0) {
+        memcpy(write_ptr + HEADER_LENGTH, data->args->target_user, username_length);
     }
-    writePtr[HEADER_LENGTH + usernameLength] = '\0'; // Null terminator
-    buffer_write_adv(data->clientBuffer, totalLength);
-    return handleRequestSend(data);
+    write_ptr[HEADER_LENGTH + username_length] = '\0'; // Null terminator
+    buffer_write_adv(data->client_buffer, total_length);
+    return handle_request_send(data);
 }

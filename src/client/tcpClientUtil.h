@@ -10,7 +10,7 @@
 #include "../server/serverConfigTypes.h"
 
 
-int tcpClientSocket(const char *host, const char *service);
+int tcp_client_socket(const char *host, const char *service);
 
-unsigned handleStatsRead(clientData *data);
-void handleClientClose(unsigned state, clientData *data);
+unsigned handle_stats_read(client_data *data);
+void handle_client_close(unsigned state, client_data *data);

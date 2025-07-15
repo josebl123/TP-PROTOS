@@ -25,36 +25,36 @@ static enum {
     STATS_DONE
 } state = STATS_READING_HEADER;
 
-int tcpClientSocket(const char *host, const char *service) {
-    struct addrinfo addrCriteria = {0};
-    addrCriteria.ai_family = AF_UNSPEC;
-    addrCriteria.ai_socktype = SOCK_STREAM;
-    addrCriteria.ai_protocol = IPPROTO_TCP;
+int tcp_client_socket(const char *host, const char *service) {
+    struct addrinfo addr_criteria = {0};
+    addr_criteria.ai_family = AF_UNSPEC;
+    addr_criteria.ai_socktype = SOCK_STREAM;
+    addr_criteria.ai_protocol = IPPROTO_TCP;
 
-    struct addrinfo *servAddr;
-    const int rtnVal = getaddrinfo(host, service, &addrCriteria, &servAddr);
-    if (rtnVal != 0) {
-        log(ERROR, "getaddrinfo() failed %s", gai_strerror(rtnVal));
+    struct addrinfo *serv_addr;
+    const int rtn_val = getaddrinfo(host, service, &addr_criteria, &serv_addr);
+    if (rtn_val != 0) {
+        log(ERROR, "getaddrinfo() failed %s", gai_strerror(rtn_val));
         return -1;
     }
 
     int sock = -1;
-    for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
-        char addrBuffer[MAX_ADDR_BUFFER];
+    for (struct addrinfo *addr = serv_addr; addr != NULL && sock == -1; addr = addr->ai_next) {
+        char addr_buffer[MAX_ADDR_BUFFER];
         sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
         if (sock >= 0) {
             errno = 0;
             if (connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
                 close(sock);
                 sock = -1;
-                printf("Connection failed on %s: %s\n", printAddressPort(addr, addrBuffer), strerror(errno));
+                printf("Connection failed on %s: %s\n", print_address_port(addr, addr_buffer), strerror(errno));
             }
         } else {
-           printf( "Can't create client socket on %s", printAddressPort(addr, addrBuffer));
+           printf( "Can't create client socket on %s", print_address_port(addr, addr_buffer));
         }
     }
 
-    freeaddrinfo(servAddr);
+    freeaddrinfo(serv_addr);
     return sock;
 }
 
@@ -67,17 +67,17 @@ void failure_response_print(int response) {
     }
 }
 
-void handleClientClose(const unsigned state, clientData * data) {
+void handle_client_close(const unsigned state, client_data * data) {
     fflush(stdout);
     free(data->stm);
-    free(data->clientBuffer->data);
-    free(data->clientBuffer);
+    free(data->client_buffer->data);
+    free(data->client_buffer);
     free(data);
-    close(clntSocket);
+    close(clnt_socket);
     exit(state == DONE ? 0 : 1);
 }
-unsigned handleStatsReadRec(clientData *data, unsigned state, uint32_t * expected_body_len, uint32_t  bytes_read) {
-    buffer *buf = data->clientBuffer;
+unsigned handle_stats_read_rec(client_data *data, unsigned state, uint32_t * expected_body_len, uint32_t  bytes_read) {
+    buffer *buf = data->client_buffer;
 
     while (1) {
         size_t available;
@@ -88,12 +88,12 @@ unsigned handleStatsReadRec(clientData *data, unsigned state, uint32_t * expecte
                 // Leer más datos
                 size_t space;
                 uint8_t *write_ptr = buffer_write_ptr(buf, &space);
-                const ssize_t received = recv(clntSocket, write_ptr, space, 0);
+                const ssize_t received = recv(clnt_socket, write_ptr, space, 0);
                 if (received <= 0) {
                     return DONE;
                 }
                 buffer_write_adv(buf, received);
-                return handleStatsReadRec(data, state, expected_body_len, bytes_read);
+                return handle_stats_read_rec(data, state, expected_body_len, bytes_read);
             }
 
             // Procesar header
@@ -125,7 +125,7 @@ unsigned handleStatsReadRec(clientData *data, unsigned state, uint32_t * expecte
             if (available == 0) {
                 size_t space;
                 uint8_t *write_ptr = buffer_write_ptr(buf, &space);
-                const ssize_t received = recv(clntSocket, write_ptr, space, 0);
+                const ssize_t received = recv(clnt_socket, write_ptr, space, 0);
                 if (received <= 0) {
                     return DONE;
                 }
@@ -146,7 +146,7 @@ unsigned handleStatsReadRec(clientData *data, unsigned state, uint32_t * expecte
             if (bytes_read >= *expected_body_len) {
                 state = STATS_DONE;
             } else {
-                return handleStatsReadRec(data, state, expected_body_len, bytes_read);
+                return handle_stats_read_rec(data, state, expected_body_len, bytes_read);
             }
         }
 
@@ -161,13 +161,13 @@ unsigned handleStatsReadRec(clientData *data, unsigned state, uint32_t * expecte
 }
 
 
-unsigned handleStatsRead(clientData *data) {
+unsigned handle_stats_read(client_data *data) {
 
     // Estado del cliente
     state = STATS_READING_HEADER;
     uint32_t expected_body_len = 0;
 
-    return handleStatsReadRec(data, state, &expected_body_len, 0);
+    return handle_stats_read_rec(data, state, &expected_body_len, 0);
 }
 
 

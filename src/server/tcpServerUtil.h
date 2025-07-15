@@ -74,10 +74,10 @@ enum ADDRESS_TYPE {
   IPV6 = 0x04         // IPv6 address
 };
 
-typedef struct clientData clientData;
+typedef struct client_data client_data;
 
 struct originInfo {
-  uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
+  uint8_t address_type; // Address type (IPv4, IPv6, or domain name)
   union {
     uint32_t ipv4; // IPv4 address in network byte order
     struct in6_addr ipv6; // IPv6 address
@@ -85,84 +85,83 @@ struct originInfo {
   uint16_t port; // Origin port
 };
 
-struct destinationInfo {
-    uint8_t addressType; // Address type (IPv4, IPv6, or domain name)
+struct destination_info {
+    uint8_t address_type; // Address type (IPv4, IPv6, or domain name)
     union {
         uint32_t ipv4; // IPv4 address in network byte order
         struct in6_addr ipv6; // IPv6 address
-        char domainName[256]; // Domain name
+        char domain_name[256]; // Domain name
     } address;
     uint16_t port; // Destination port
 };
 
-struct authInfo {
+struct auth_info {
     char username[256];
     char password[256];
 };
 
-struct dnsRes {
+struct dns_res {
     int gai_error;
     struct addrinfo *addrinfo; // Pointer to the address info for the DNS resolution
 };
 
-struct dnsReq{
-    clientData * clientData; // Pointer to the client data structure
+struct dns_req{
+    client_data * client_data; // Pointer to the client data structure
     struct gaicb *request;
     struct gaicb **list; // Pointer to the list of DNS requests
-    fd_selector fdSelector;
+    fd_selector fd_selector;
     struct addrinfo *hints; // Pointer to the address info for the DNS request
     int fd; // File descriptor for the DNS request
     char port[6]; // Port string for the DNS request
 };
 
- struct clientData {
-     buffer * clientBuffer;
-     buffer *remoteBuffer; // Buffer for reading/writing data to the remote socket
+ struct client_data {
+     buffer * client_buffer;
+     buffer *remote_buffer; // Buffer for reading/writing data to the remote socket
 
-     int remoteSocket; // Socket for the remote connection
-     int clientSocket; // Socket for the client connection
+     int remote_socket; // Socket for the remote connection
+     int client_socket; // Socket for the client connection
 
      struct state_machine *stm; // Pointer to the state machine
      struct state_machine *remote_stm; // Pointer to the state machine
 
-     uint8_t authMethod;
-     struct authInfo authInfo; // Authentication information
-     uint8_t isAnonymous; // Flag to indicate if the client is anonymous
+     uint8_t auth_method;
+     struct auth_info auth_info; // Authentication information
+     uint8_t is_anonymous; // Flag to indicate if the client is anonymous
 
-     struct destinationInfo destination; // Destination information
+     struct destination_info destination; // Destination information
      struct originInfo origin; // Origin information
 
-     int responseStatus; // Status of the response to the client
+     int response_status; // Status of the response to the client
      user_connection current_user_conn;
 
-     struct dnsReq *dnsRequest; // Pointer to the DNS request structure
-     int addressResolved; // Flag to indicate if the callback is ready
-     int callBackFinished;
+     struct dns_req *dns_request; // Pointer to the DNS request structure
+     int address_resolved; // Flag to indicate if the callback is ready
 
-     struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
-     struct addrinfo *pointerToFree; // Pointer to the address info to free later
+     struct addrinfo *remote_addrinfo; // Address info for the remote connection in case we need to try another address
+     struct addrinfo *pointer_to_free; // Pointer to the address info to free later
 
      struct timespec last_activity;
  };
 
 // Create, bind, and listen a new TCP server socket
-int setupTCPServerSocket(const char *addr, const int port);
+int setup_tcp_server_socket(const char *addr, const int port);
 
-int setupTCPRemoteSocket(const struct destinationInfo *destination, struct selector_key *key);
+int setup_tcp_remote_socket(const struct destination_info *destination, struct selector_key *key);
 
 // Accept a new TCP connection on a server socket
-int acceptTCPConnection(int servSock);
+int accept_tcp_connection(int serv_sock);
 
 // Handle read events on the master socket (new connections)
-void handleMasterRead( struct selector_key *key);
+void handle_master_read( struct selector_key *key);
 
-void handleMasterClose(struct selector_key *key);
+void handle_master_close(struct selector_key *key);
 
 void handleClientRead(struct selector_key *key);
 
-void handleTCPEchoClientClose(struct selector_key *key);
-void setResponseStatus(clientData *data, int error);
-int remoteSocketInit(const int remoteSocket, const struct selector_key *key, int initial_state, int interest);
+void handleTCPEchoclient_close(struct selector_key *key);
+void set_response_status(client_data *data, int error);
+int remote_socket_init(const int remote_socket, const struct selector_key *key, int initial_state, int interest);
 
 void socks5_close(struct selector_key *key);
 void socks5_read(struct selector_key *key);
