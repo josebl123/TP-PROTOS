@@ -199,9 +199,7 @@ unsigned handleRelayClientRead(struct selector_key *key){
     uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
         if ( errno == ECONNRESET) {
-            log(INFO, "Client socket %d closed connection", clntSocket);
             return RELAY_DONE; // El cliente cerró la conexión
         }
         metrics_add_receive_error();

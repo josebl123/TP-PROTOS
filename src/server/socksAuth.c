@@ -79,6 +79,7 @@ unsigned handleHelloRead(struct selector_key *key) {
         if (socksArgs->serverAcceptsNoAuth && clientAcceptsNoAuth) {
             data->authMethod = AUTH_METHOD_NOAUTH;
             buffer_reset(data->clientBuffer);
+            metrics_new_connection(); // Registrar nueva conexión anónima
             if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {;
                 log(ERROR, "Failed to set interest for client socket %d", clntSocket);
                 return ERROR_CLIENT;
@@ -141,11 +142,9 @@ unsigned handleAuthRead(struct selector_key *key) {
     uint8_t *readPtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
     const ssize_t numBytesRcvd = recv(clntSocket, readPtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed on client socket %d", clntSocket);
         return ERROR_CLIENT;
     }
     if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection ACA", clntSocket);
         return DONE;
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd);

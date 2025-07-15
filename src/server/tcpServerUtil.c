@@ -37,7 +37,6 @@ void socks5_relay_write(struct selector_key *key);
  ** y crear el socket pasivo, para que escuche en cualquier IP, ya sea v4 o v6
  */
 void handleTcpClose(  struct selector_key *key) {
-    log(INFO, "TCP Closing client socket %d", key->fd);
     clientData *data =  key->data;
 
     gai_cancel(&data->dnsRequest->request); // Cancelar la solicitud de DNS si está pendiente
@@ -81,7 +80,6 @@ void handleTcpClose(  struct selector_key *key) {
     close(key->fd);
 }
 void handleRemoteClose( struct selector_key *key) {
-    log(INFO, "Closing remote socket %d", key->fd);
     close(key->fd);
 }
 void clientClose(const unsigned state, struct selector_key *key) {
@@ -273,7 +271,7 @@ void getAddrInfoCallBack(union sigval sigval) {
     if (dnsResponse == NULL) {
         log(ERROR, "Failed to allocate memory for DNS response");
         req->clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
-        metrics_add_server_error();
+        metrics_add_host_unreachable_error();
         return;
     }
 
@@ -380,7 +378,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             log(ERROR, "getaddrinfo_a() failed for domain %s: %s",
                 destination->address.domainName, gai_strerror(gaiResult));
             data->responseStatus = SOCKS5_HOST_UNREACHABLE;
-            metrics_add_dns_resolution_error();
+            metrics_add_host_unreachable_error();
             return -1;
         }
 
@@ -398,7 +396,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         log(ERROR, "connect() failed: %s", strerror(errno));
         int error = errno;
         setResponseStatus(data, error); // Set the appropriate response status based on the error
-        metrics_add_server_error(); // TODO: Is this a server error?
         return -1;
     }
 
@@ -576,8 +573,6 @@ void handleMasterRead(struct selector_key *key) {
     } else {
         log(ERROR, "Unsupported address family");
     }
-
-    log(INFO, "Accepted new connection from:%d", data->origin.port);
 
 
     // Registrar con interés inicial
