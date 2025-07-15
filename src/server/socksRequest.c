@@ -89,8 +89,7 @@ unsigned send_failure_response(client_data *data, int clnt_socket, unsigned erro
             return FAILURE_RESPONSE; // Return to retry later
         }
         if (errno == ECONNRESET || errno == ECONNREFUSED || errno == EPIPE) {
-            log(INFO, "Client socket %d closed connection: %s", clnt_socket, strerror(errno));
-            return DONE; // Client closed the connection
+            return done; // Client closed the connection
         }
         log(ERROR, "send() failed on client socket %d: %s", clnt_socket, strerror(errno));
     }
