@@ -42,7 +42,7 @@
  *  - esperar algún evento: `selector_iteratate'
  *  - destruir los recursos de la librería `selector_close'
  */
-typedef struct fdselector * fd_selector;
+typedef struct fd_selector * fd_selector;
 
 /** valores de retorno. */
 typedef enum {

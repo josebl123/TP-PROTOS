@@ -78,7 +78,7 @@ typedef enum {
 
 // Información del cliente en la conexión de configuración
 typedef struct {
-    buffer *clientBuffer;
+    buffer *client_buffer;
     struct state_machine *stm;
     config_state state;
     size_t bytes_read;
@@ -88,7 +88,7 @@ typedef struct {
     struct auth_config_info {
         char username[256];
         char password[256];
-    } authInfo;
+    } auth_info;
     char *metrics_buf;
     size_t metrics_buf_len;
     size_t metrics_buf_offset;
@@ -101,6 +101,6 @@ typedef struct {
 
     int response_code; // Código de respuesta para enviar al cliente
 
-} clientConfigData;
+} client_config_data;
 
 #endif //SERVERCONFIGTYPES_H

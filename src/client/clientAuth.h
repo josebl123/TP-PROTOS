@@ -6,8 +6,8 @@
 #define CLIENTAUTH_H
 #include "client.h"
 
-unsigned handleAuthRead(clientData * data);
-unsigned handleAuthWrite(clientData * data);
+unsigned handle_auth_read(client_data * data);
+unsigned handle_auth_write(client_data * data);
 
 
 

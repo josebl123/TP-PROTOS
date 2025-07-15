@@ -21,12 +21,12 @@
 
 #define BUFFER_SIZE (1024  * 32) // Define a buffer size for client communication
 
-int clntSocket; // Global socket variable
+int clnt_socket; // Global socket variable
 
 int main(int argc, char** argv) {
   struct clientArgs client_args;
   parse_client_args(argc, argv, &client_args);
-  clientData *data = malloc(sizeof(clientData));
+  client_data *data = malloc(sizeof(client_data));
 
   buffer *buf = malloc(sizeof(buffer));
   if (buf == NULL) {
@@ -43,18 +43,18 @@ int main(int argc, char** argv) {
     return -1;
   }
   buffer_init(buf, BUFFER_SIZE, buf->data); // Initialize the buffer
-  data->clientBuffer = buf; // Assign the buffer to client data
+  data->client_buffer = buf; // Assign the buffer to client data
 
   data->args = &client_args; // Assign the client arguments to client data
 
 
- clntSocket = tcpClientSocket(client_args.addr, client_args.port);
+ clnt_socket = tcp_client_socket(client_args.addr, client_args.port);
 
-  if (clntSocket < 0)
-    handleClientClose(ERROR_CLIENT, data); // Handle error in client socket creation
+  if (clnt_socket < 0)
+    handle_client_close(ERROR_CLIENT, data); // Handle error in client socket creation
 
-  const unsigned status  = handleAuthWrite(data); // Start with authentication write
+  const unsigned status  = handle_auth_write(data); // Start with authentication write
 
-  handleClientClose(status, data);
+  handle_client_close(status, data);
 
 }

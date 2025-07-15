@@ -40,31 +40,31 @@ enum OPTIONS {
 #define MAKE_ADMIN_BASE_LEN    5
 
 
-unsigned handleConfigRead(clientData *data) {
+unsigned handle_config_read(client_data *data) {
 
-    size_t writeLimit;
-    uint8_t *writePtr = buffer_write_ptr(data->clientBuffer, &writeLimit);
-    const ssize_t numBytesRcvd = recv(clntSocket, writePtr, writeLimit, 0);
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    size_t write_limit;
+    uint8_t *write_ptr = buffer_write_ptr(data->client_buffer, &write_limit);
+    const ssize_t num_bytes_rcvd = recv(clnt_socket, write_ptr, write_limit, 0);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
 
-    if (numBytesRcvd < 0) {
-        log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
+    if (num_bytes_rcvd < 0) {
+        log(ERROR, "recv() failed on client socket %d: %s", clnt_socket, strerror(errno));
         return ERROR_CLIENT; // TODO definir codigos de error
     }
 
-    if (numBytesRcvd == 0) {
+    if (num_bytes_rcvd == 0) {
         return DONE;
     }
-    if(buffer_read(data->clientBuffer) != VERSION) {
-        log(ERROR, "Invalid version in authentication request from client socket %d", clntSocket);
+    if(buffer_read(data->client_buffer) != VERSION) {
+        log(ERROR, "Invalid version in authentication request from client socket %d", clnt_socket);
         return ERROR_CLIENT; // Abortamos si la versión no es correcta
     }
-    if (buffer_read(data->clientBuffer) != RSV) {
-        log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clntSocket);
+    if (buffer_read(data->client_buffer) != RSV) {
+        log(ERROR, "Invalid reserved byte in authentication request from client socket %d", clnt_socket);
         return ERROR_CLIENT; // Abortamos si el byte reservado no es correcto
     }
-    uint8_t option = buffer_read(data->clientBuffer);
-    int status = buffer_read(data->clientBuffer);
+    uint8_t option = buffer_read(data->client_buffer);
+    int status = buffer_read(data->client_buffer);
     switch (option) {
         case OPTION_BUFFER_SIZE:
             if (status == STATUS_OK) {
@@ -124,23 +124,23 @@ unsigned handleConfigRead(clientData *data) {
             return DONE;
     }
   }
-  unsigned handleConfigSend(clientData *data, char *response, size_t responseSize) {
+  unsigned handle_config_send(client_data *data, char *response, size_t responseSize) {
 
-    ssize_t bytesSent = send(clntSocket, response, responseSize, 0);
-    if (bytesSent < 0) {
-        log(ERROR, "send() failed on client socket %d: %s", clntSocket, strerror(errno));
+    ssize_t bytes_sent = send(clnt_socket, response, responseSize, 0);
+    if (bytes_sent < 0) {
+        log(ERROR, "send() failed on client socket %d: %s", clnt_socket, strerror(errno));
         return ERROR_CLIENT;
     }
-    if (bytesSent == 0) {
+    if (bytes_sent == 0) {
         return DONE; // Connection closed
     }
-    if((size_t)bytesSent < responseSize) {
-        return handleConfigSend(data, response + bytesSent, responseSize - bytesSent); // Partial send, wait for next write
+    if((size_t)bytes_sent < responseSize) {
+        return handle_config_send(data, response + bytes_sent, responseSize - bytes_sent); // Partial send, wait for next write
     }
-    return handleConfigRead(data);
+    return handle_config_read(data);
  }
 
-unsigned handleConfigWrite(clientData *data) {
+unsigned handle_config_write(client_data *data) {
 
     char *response = NULL;
     int responseSize = 0;
@@ -204,7 +204,7 @@ unsigned handleConfigWrite(clientData *data) {
             log(ERROR, "Unknown configuration option: %d", data->args->type);
             return ERROR_CLIENT;
     }
-    return handleConfigSend(data, response, responseSize);
+    return handle_config_send(data, response, responseSize);
 }
 
 

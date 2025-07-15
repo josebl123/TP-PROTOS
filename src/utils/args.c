@@ -82,7 +82,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
     args->mng_port = DEFAULT_MNG_PORT;
 
     args->disectors_enabled = true;
-    args->serverAcceptsNoAuth = true; // por defecto acepta conexiones sin autenticación
+    args->server_accepts_no_auth = true; // por defecto acepta conexiones sin autenticación
 
     int c;
     int nusers = 0;
@@ -128,7 +128,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
             {
                 user(optarg, args->users + nusers, false);
                 nusers++;
-                args->serverAcceptsNoAuth = false; // si hay usuarios, no acepta conexiones sin autenticación
+                args->server_accepts_no_auth = false; // si hay usuarios, no acepta conexiones sin autenticación
             }
             break;
         case 'a':
@@ -141,7 +141,7 @@ parse_args(const int argc, char** argv, struct socks5args* args)
           {
               user(optarg, args->users + nusers, true);
               nusers++;
-              args->serverAcceptsNoAuth = false; // si hay usuarios, no acepta conexiones sin autenticación
+              args->server_accepts_no_auth = false; // si hay usuarios, no acepta conexiones sin autenticación
           }
             break;
         case 'v':

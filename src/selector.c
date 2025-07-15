@@ -128,7 +128,7 @@ static const int FD_UNUSED = -1;
 /** verifica si el item está usado */
 #define ITEM_USED(i) ( ( FD_UNUSED != (i)->fd) )
 
-struct fdselector {
+struct fd_selector {
     // almacenamos en una jump table donde la entrada es el file descriptor.
     // Asumimos que el espacio de file descriptors no va a ser esparso; pero
     // esto podría mejorarse utilizando otra estructura de datos
@@ -287,7 +287,7 @@ ensure_capacity(fd_selector s, const size_t n) {
 
 fd_selector
 selector_new(const size_t initial_elements) {
-    size_t size = sizeof(struct fdselector);
+    size_t size = sizeof(struct fd_selector);
     fd_selector ret = malloc(size);
     if(ret != NULL) {
         memset(ret, 0x00, size);

@@ -20,20 +20,20 @@
 #define BUFFER_CHANGE_REQUEST_SIZE 5 // Size of the buffer change request (version, rsv, new size)
 #define ADD_USER_MIN_LENGTH 4
 
-int makeAdmin(char *username, uint8_t ulen) {
-    if (socksArgs == NULL) {
-        log(ERROR, "socksArgs o users array es NULL");
+int make_admin(char *username, uint8_t ulen) {
+    if (socks_args == NULL) {
+        log(ERROR, "socks_args o users array es NULL");
         return false;
     }
 
     for (size_t i = 0; i < MAX_USERS; i++) {
-        if (socksArgs->users[i].name != NULL &&
-            strncmp(socksArgs->users[i].name, username, ulen) == 0) {
-            if (socksArgs->users[i].is_admin) {
+        if (socks_args->users[i].name != NULL &&
+            strncmp(socks_args->users[i].name, username, ulen) == 0) {
+            if (socks_args->users[i].is_admin) {
                 log(ERROR, "El usuario %s ya es admin", username);
                 return false;
             }
-            socksArgs->users[i].is_admin = true;
+            socks_args->users[i].is_admin = true;
             log(INFO, "Usuario %s promovido a admin", username);
             return true;
             }
@@ -42,19 +42,19 @@ int makeAdmin(char *username, uint8_t ulen) {
     return false;
 }
 
-int removeUser(char * username, uint8_t ulen) {
-        if (socksArgs == NULL ) {
-        log(ERROR, "socksArgs or users array is NULL");
+int remove_user(char * username, uint8_t ulen) {
+        if (socks_args == NULL ) {
+        log(ERROR, "socks_args or users array is NULL");
         return false;
         }
 
     // Busca el usuario a borrar
     for (size_t i = 0; i < MAX_USERS; i++) {
-        if (socksArgs->users[i].name != NULL && strncmp(socksArgs->users[i].name, username, ulen) == 0) {
+        if (socks_args->users[i].name != NULL && strncmp(socks_args->users[i].name, username, ulen) == 0) {
             // Busca el último usuario válido
             size_t last = MAX_USERS;
             for (size_t j = 0; j < MAX_USERS; j++) {
-                if (socksArgs->users[j].name == NULL) {
+                if (socks_args->users[j].name == NULL) {
                     last = j;
                     break;
                 }
@@ -62,23 +62,23 @@ int removeUser(char * username, uint8_t ulen) {
             if (last == 0) return false; // No hay usuarios
 
             const size_t last_idx = last - 1;
-            remove_user_metrics(socksArgs->users[i].name);
+            remove_user_metrics(socks_args->users[i].name);
             if (i != last_idx) {
                 // Libera el usuario a borrar
                 // Copia el último usuario en la posición borrada
-                socksArgs->users[i].name = socksArgs->users[last_idx].name;
-                socksArgs->users[i].pass = socksArgs->users[last_idx].pass;
-                socksArgs->users[i].is_admin = socksArgs->users[last_idx].is_admin;
+                socks_args->users[i].name = socks_args->users[last_idx].name;
+                socks_args->users[i].pass = socks_args->users[last_idx].pass;
+                socks_args->users[i].is_admin = socks_args->users[last_idx].is_admin;
             }
-            if (socksArgs->users[i].is_added) {
-                free(socksArgs->users[i].name);
-                free(socksArgs->users[i].pass);
+            if (socks_args->users[i].is_added) {
+                free(socks_args->users[i].name);
+                free(socks_args->users[i].pass);
             }
             // Marca el último como vacío
-            socksArgs->users[last_idx].name = NULL;
-            socksArgs->users[last_idx].pass = NULL;
-            socksArgs->users[last_idx].is_admin = false;
-            socksArgs->users[last_idx].is_added = false; // Marca como no agregado
+            socks_args->users[last_idx].name = NULL;
+            socks_args->users[last_idx].pass = NULL;
+            socks_args->users[last_idx].is_admin = false;
+            socks_args->users[last_idx].is_added = false; // Marca como no agregado
             return true;
         }
     }
@@ -87,58 +87,57 @@ int removeUser(char * username, uint8_t ulen) {
 
 }
 
-unsigned addUser( char * username, const uint8_t ulen,  char *password, const uint8_t passlen, const bool is_admin) {
-    if (socksArgs == NULL ) {
-        log(ERROR, "socksArgs or users array is NULL");
+unsigned add_user( char * username, const uint8_t ulen,  char *password, const uint8_t passlen, const bool is_admin) {
+    if (socks_args == NULL ) {
+        log(ERROR, "socks_args or users array is NULL");
         return false;
     }
 
     for (size_t i = 0; i < MAX_USERS; i++) {
-        if ( socksArgs->users[i].name != NULL &&
-            strncmp(socksArgs->users[i].name, username, ulen) == 0) {
+        if ( socks_args->users[i].name != NULL &&
+            strncmp(socks_args->users[i].name, username, ulen) == 0) {
             log(ERROR, "User %s already exists", username);
             return false; // User already exists
             }
-        if (socksArgs->users[i].name == NULL) {
+        if (socks_args->users[i].name == NULL) {
             // Found an empty slot
-            socksArgs->users[i].name = malloc(ulen + 1);
-            socksArgs->users[i].pass = malloc(passlen + 1);
-            if (socksArgs->users[i].name == NULL || socksArgs->users[i].pass == NULL) {
+            socks_args->users[i].name = malloc(ulen + 1);
+            socks_args->users[i].pass = malloc(passlen + 1);
+            if (socks_args->users[i].name == NULL || socks_args->users[i].pass == NULL) {
                 log(ERROR, "Memory allocation failed for new user");
                 return false;
             }
-            strncpy(socksArgs->users[i].name, username, ulen);
-            strncpy(socksArgs->users[i].pass, password, passlen);
-            socksArgs->users[i].name[ulen] = '\0'; // Initialize to empty string
-            socksArgs->users[i].pass[passlen] = '\0'; // Initialize to empty string
-            socksArgs->users[i].is_admin = is_admin;
-            socksArgs->users[i].is_added = true; // Mark as added
+            strncpy(socks_args->users[i].name, username, ulen);
+            strncpy(socks_args->users[i].pass, password, passlen);
+            socks_args->users[i].name[ulen] = '\0'; // Initialize to empty string
+            socks_args->users[i].pass[passlen] = '\0'; // Initialize to empty string
+            socks_args->users[i].is_admin = is_admin;
+            socks_args->users[i].is_added = true; // Mark as added
             return true;
         }
     }
     log(ERROR, "User limit reached, cannot add more users");
     return false;
 }
-unsigned attemptAdminBufferSizeChangeWrite(struct selector_key *key, bool flag) {
-    const clientConfigData *data = key->data;
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, CONFIG_VERSION);
-    buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, ADMIN_CMD_CHANGE_BUFFER_SIZE);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
-    return handleAdminBufferSizeChangeWrite(key);
-
+unsigned attempt_admin_buffer_size_change_write(struct selector_key *key, bool flag) {
+    const client_config_data *data = key->data;
+    buffer_reset(data->client_buffer);
+    buffer_write(data->client_buffer, CONFIG_VERSION);
+    buffer_write(data->client_buffer, RSV);
+    buffer_write(data->client_buffer, ADMIN_CMD_CHANGE_BUFFER_SIZE);
+    buffer_write(data->client_buffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
+    return handle_admin_buffer_size_change_write(key);
 }
 
-unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
-    const clientConfigData *data = key->data;
+unsigned handle_admin_buffer_size_change_read(struct selector_key * key) {
+    const client_config_data *data = key->data;
     const int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->client_buffer, &available);
 
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
+    const ssize_t num_bytes_rcvd = recv(fd, ptr, available, 0);
+    if (num_bytes_rcvd <= 0) {
+        if (num_bytes_rcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
         }
@@ -146,33 +145,33 @@ unsigned handleAdminBufferSizeChangeRead(struct selector_key * key) {
         return ERROR_CONFIG_CLIENT;
     }
 
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
-    size_t readAvailable;
-    buffer_read_ptr(data->clientBuffer, &readAvailable);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
+    size_t read_available;
+    buffer_read_ptr(data->client_buffer, &read_available);
 
-    if (readAvailable < BUFFER_CHANGE_REQUEST_SIZE) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
+    if (read_available < BUFFER_CHANGE_REQUEST_SIZE) return ADMIN_BUFFER_SIZE_CHANGE_READ; // versión, rsv, código (1 byte)
     // Saltar los primeros 4 bytes
-    buffer_read_adv(data->clientBuffer, BUFFER_CHANGE_REQUEST_SIZE -1);
+    buffer_read_adv(data->client_buffer, BUFFER_CHANGE_REQUEST_SIZE -1);
 
     // Leer el nuevo buffer_size (por ejemplo, como uint32_t en network order)
-    const uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->clientBuffer, &available));
+    const uint32_t new_buf_size = ntohl(*(uint32_t *)buffer_read_ptr(data->client_buffer, &available));
     log(INFO, "Received new buffer size: %u", new_buf_size);
     int flag = 1;
 
     if (new_buf_size < MIN_BUFFER_SIZE || new_buf_size > MAX_BUFFER_SIZE) {
         flag = 0;
     }
-    bufferSize = new_buf_size;
+    buffer_size = new_buf_size;
 
-    return attemptAdminBufferSizeChangeWrite(key, flag);
+    return attempt_admin_buffer_size_change_write(key, flag);
 }
-unsigned genericWrite(struct selector_key * key, unsigned next_state, unsigned current_state) {
-    const clientConfigData *data = key->data;
+unsigned generic_write(struct selector_key * key, unsigned next_state, unsigned current_state) {
+    const client_config_data *data = key->data;
     const int fd = key->fd;
     size_t available;
-    const uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
-    const ssize_t numBytesSent = send(fd, ptr, available, 0);
-    if (numBytesSent < 0) {
+    const uint8_t *ptr = buffer_read_ptr(data->client_buffer, &available);
+    const ssize_t num_bytes_sent = send(fd, ptr, available, 0);
+    if (num_bytes_sent < 0) {
         if (errno == ECONNRESET) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE; // El cliente cerró la conexión
@@ -183,59 +182,59 @@ unsigned genericWrite(struct selector_key * key, unsigned next_state, unsigned c
         }
         return ERROR_CONFIG_CLIENT;
     }
-    if (numBytesSent == 0) {
+    if (num_bytes_sent == 0) {
         log(INFO, "Client socket %d closed connection", fd);
         return CONFIG_DONE; // El cliente cerró la conexión
     }
-    if (numBytesSent < (ssize_t)available) {
+    if (num_bytes_sent < (ssize_t)available) {
         log(ERROR, "Partial write on client socket %d", fd);
         return current_state; // No se envió todo, intenta de nuevo
     }
-    buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
+    buffer_read_adv(data->client_buffer, num_bytes_sent); // Avanzar el puntero de lectura del buffer
 
     return next_state;
 }
-unsigned handleAdminBufferSizeChangeWrite(struct selector_key *key) {
-    return genericWrite(key, CONFIG_DONE, ADMIN_BUFFER_SIZE_CHANGE);
+unsigned handle_admin_buffer_size_change_write(struct selector_key *key) {
+    return generic_write(key, CONFIG_DONE, ADMIN_BUFFER_SIZE_CHANGE);
 }
-unsigned attemptAdminAcceptsAuthWrite(struct selector_key *key, bool accepts) {
-    const clientConfigData *data = key->data;
-    socksArgs->serverAcceptsNoAuth = accepts;
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, CONFIG_VERSION);
-    buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : ADMIN_CMD_REJECTS_NO_AUTH);
-    buffer_write(data->clientBuffer, STATUS_OK);
-    return accepts ? handleAdminAcceptsNoAuthWrite(key): handleAdminRejectsNoAuthWrite(key);
-}
-
-unsigned handleAdminAcceptsNoAuthWrite(struct selector_key *key) {
-    return genericWrite(key, CONFIG_DONE, ADMIN_ACCEPTS_NO_AUTH);
+unsigned attempt_admin_accepts_auth_write(struct selector_key *key, bool accepts) {
+    const client_config_data *data = key->data;
+    socks_args->server_accepts_no_auth = accepts;
+    buffer_reset(data->client_buffer);
+    buffer_write(data->client_buffer, CONFIG_VERSION);
+    buffer_write(data->client_buffer, RSV);
+    buffer_write(data->client_buffer, accepts? ADMIN_CMD_ACCEPTS_NO_AUTH : ADMIN_CMD_REJECTS_NO_AUTH);
+    buffer_write(data->client_buffer, STATUS_OK);
+    return accepts ? handle_admin_accepts_no_auth_write(key): handle_admin_rejects_no_auth_write(key);
 }
 
-unsigned handleAdminRejectsNoAuthWrite(struct selector_key *key) {
-    return genericWrite(key, CONFIG_DONE, ADMIN_REJECTS_NO_AUTH);
+unsigned handle_admin_accepts_no_auth_write(struct selector_key *key) {
+    return generic_write(key, CONFIG_DONE, ADMIN_ACCEPTS_NO_AUTH);
 }
-unsigned attemptAdminAddUserWrite(struct selector_key *key, bool flag) {
-    const clientConfigData *data = key->data;
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, CONFIG_VERSION);
-    buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, ADMIN_CMD_ADD_USER);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
-    return handleAdminAddUserWrite(key);
+
+unsigned handle_admin_rejects_no_auth_write(struct selector_key *key) {
+    return generic_write(key, CONFIG_DONE, ADMIN_REJECTS_NO_AUTH);
+}
+unsigned attempt_admin_add_user_write(struct selector_key *key, bool flag) {
+    const client_config_data *data = key->data;
+    buffer_reset(data->client_buffer);
+    buffer_write(data->client_buffer, CONFIG_VERSION);
+    buffer_write(data->client_buffer, RSV);
+    buffer_write(data->client_buffer, ADMIN_CMD_ADD_USER);
+    buffer_write(data->client_buffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
+    return handle_admin_add_user_write(key);
 }
 
 
-unsigned handleAdminAddUserRead(struct selector_key * key) {
-    const clientConfigData *data = key->data;
+unsigned handle_admin_add_user_read(struct selector_key * key) {
+    const client_config_data *data = key->data;
     const int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->client_buffer, &available);
 
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
+    const ssize_t num_bytes_rcvd = recv(fd, ptr, available, 0);
+    if (num_bytes_rcvd <= 0) {
+        if (num_bytes_rcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
         }
@@ -243,25 +242,25 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
         return ERROR_CONFIG_CLIENT;
     }
 
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
 
-    size_t readAvailable;
-    const uint8_t * readPtr= buffer_read_ptr(data->clientBuffer, &readAvailable);
+    size_t read_available;
+    const uint8_t * read_ptr= buffer_read_ptr(data->client_buffer, &read_available);
 
-    if (readAvailable < ADD_USER_MIN_LENGTH) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
+    if (read_available < ADD_USER_MIN_LENGTH) return ADMIN_ADD_USER_READ; // versión, rsv, código (1 byte)
 
-    const uint8_t ulen = readPtr[0] ;
+    const uint8_t ulen = read_ptr[0] ;
     if (ulen > MAX_USERNAME_LEN || ulen < 1) {
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for client socket %d", fd);
             return ERROR_CONFIG_CLIENT;
         }
         return attempt_send_bad_request_error(key);    }
-    if (readAvailable < (size_t)ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
+    if (read_available < (size_t)ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
         return ADMIN_ADD_USER_READ; // No hay suficientes bytes para el nombre de usuario
     }
 
-    const uint8_t passlen = readPtr[ulen + 1];
+    const uint8_t passlen = read_ptr[ulen + 1];
     if (passlen > MAX_PASSWORD_LEN || passlen < 1) {
         log(ERROR, "Password length exceeds maximum: %u", passlen);
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
@@ -270,20 +269,20 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
         }
         return attempt_send_bad_request_error(key);
     }
-    if (readAvailable < (size_t)ulen + 1 + (size_t)passlen + 1) {
+    if (read_available < (size_t)ulen + 1 + (size_t)passlen + 1) {
         return ADMIN_ADD_USER_READ;
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
     char password[MAX_PASSWORD_LEN + 1] = {0};
-    memcpy(username,    readPtr + 1,  ulen);
-    buffer_read_adv(data->clientBuffer, ulen + 1); // Avanzar el buffer para saltar el nombre de usuario
-    readPtr = buffer_read_ptr(data->clientBuffer, &available);
+    memcpy(username,    read_ptr + 1,  ulen);
+    buffer_read_adv(data->client_buffer, ulen + 1); // Avanzar el buffer para saltar el nombre de usuario
+    read_ptr = buffer_read_ptr(data->client_buffer, &available);
 
-    memcpy(password, readPtr + 1 ,passlen);
-    buffer_read_adv(data->clientBuffer,  passlen +1);
+    memcpy(password, read_ptr + 1 ,passlen);
+    buffer_read_adv(data->client_buffer,  passlen +1);
     bool flag = 1;
 
-    if (!addUser(username, ulen, password, passlen,false)) {
+    if (!add_user(username, ulen, password, passlen,false)) {
         flag = 0;
     }
 
@@ -292,32 +291,32 @@ unsigned handleAdminAddUserRead(struct selector_key * key) {
         log(ERROR, "Failed to set interest for client socket %d", fd);
         return ERROR_CONFIG_CLIENT;
     }
-    return attemptAdminAddUserWrite(key, flag);
+    return attempt_admin_add_user_write(key, flag);
 }
 
-unsigned handleAdminAddUserWrite(struct selector_key *key) {
-    return genericWrite(key, CONFIG_DONE, ADMIN_ADD_USER);
+unsigned handle_admin_add_user_write(struct selector_key *key) {
+    return generic_write(key, CONFIG_DONE, ADMIN_ADD_USER);
 }
 
-unsigned attemptAdminRemoveUserWrite(struct selector_key *key, bool flag) {
-    const clientConfigData *data = key->data;
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, CONFIG_VERSION);
-    buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, ADMIN_CMD_REMOVE_USER);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
-    return handleAdminRemoveUserWrite(key);
+unsigned attempt_admin_remove_user_write(struct selector_key *key, bool flag) {
+    const client_config_data *data = key->data;
+    buffer_reset(data->client_buffer);
+    buffer_write(data->client_buffer, CONFIG_VERSION);
+    buffer_write(data->client_buffer, RSV);
+    buffer_write(data->client_buffer, ADMIN_CMD_REMOVE_USER);
+    buffer_write(data->client_buffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
+    return handle_admin_remove_user_write(key);
 }
 
-unsigned handleAdminRemoveUserRead(struct selector_key * key) {
-    const clientConfigData *data = key->data;
+unsigned handle_admin_remove_user_read(struct selector_key * key) {
+    const client_config_data *data = key->data;
     const int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->client_buffer, &available);
 
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
+    const ssize_t num_bytes_rcvd = recv(fd, ptr, available, 0);
+    if (num_bytes_rcvd <= 0) {
+        if (num_bytes_rcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
         }
@@ -325,14 +324,14 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         return ERROR_CONFIG_CLIENT;
     }
 
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
     char username[MAX_USERNAME_LEN + 1] = {0};
-    size_t readAvailable;
-    const uint8_t * readPtr = buffer_read_ptr(data->clientBuffer, &readAvailable);
+    size_t read_available;
+    const uint8_t * read_ptr = buffer_read_ptr(data->client_buffer, &read_available);
 
-    if (readAvailable < 1) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
+    if (read_available < 1) return ADMIN_REMOVE_USER_READ; // versión, rsv, código (1 byte)
 
-    const uint8_t ulen = readPtr[0];
+    const uint8_t ulen = read_ptr[0];
     if (ulen > MAX_USERNAME_LEN || ulen < 1) {
         log(ERROR, "Username length exceeds maximum: %u", ulen);
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
@@ -341,19 +340,19 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         }
         return attempt_send_bad_request_error(key);
     }
-    if (readAvailable < (size_t)ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
+    if (read_available < (size_t)ulen + 1) { // Se necesitan al menos 3 bytes para versión, rsv y código
         return ADMIN_REMOVE_USER_READ; // No hay suficientes bytes para el nombre de usuario
     }
 
-    memcpy(username,readPtr + 1,  ulen);
+    memcpy(username,read_ptr + 1,  ulen);
 
-    buffer_read_adv(data->clientBuffer, ulen + 1);
+    buffer_read_adv(data->client_buffer, ulen + 1);
 
     int flag = 1;
 
     log(INFO, "received username: %s", username);
     log(INFO, "user length: %d", ulen);
-    if (!removeUser(username, ulen)) {
+    if (!remove_user(username, ulen)) {
         flag = 0;
     }
 
@@ -361,31 +360,31 @@ unsigned handleAdminRemoveUserRead(struct selector_key * key) {
         log(ERROR, "Failed to set interest for client socket %d", fd);
         return ERROR_CONFIG_CLIENT;
     }
-    return attemptAdminRemoveUserWrite(key, flag);
+    return attempt_admin_remove_user_write(key, flag);
 }
 
-unsigned handleAdminRemoveUserWrite(struct selector_key *key) {
-    return genericWrite(key, CONFIG_DONE, ADMIN_REMOVE_USER);
+unsigned handle_admin_remove_user_write(struct selector_key *key) {
+    return generic_write(key, CONFIG_DONE, ADMIN_REMOVE_USER);
 }
-unsigned attemptAdminMakeAdminWrite(struct selector_key *key, bool flag) {
-    const clientConfigData *data = key->data;
-    buffer_reset(data->clientBuffer);
-    buffer_write(data->clientBuffer, CONFIG_VERSION);
-    buffer_write(data->clientBuffer, RSV);
-    buffer_write(data->clientBuffer, ADMIN_CMD_MAKE_ADMIN);
-    buffer_write(data->clientBuffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
-    return handleAdminMakeAdminWrite(key);
+unsigned attempt_admin_make_admin_write(struct selector_key *key, bool flag) {
+    const client_config_data *data = key->data;
+    buffer_reset(data->client_buffer);
+    buffer_write(data->client_buffer, CONFIG_VERSION);
+    buffer_write(data->client_buffer, RSV);
+    buffer_write(data->client_buffer, ADMIN_CMD_MAKE_ADMIN);
+    buffer_write(data->client_buffer, flag ? STATUS_OK : STATUS_SERVER_GENERAL_FAILURE);
+    return handle_admin_make_admin_write(key);
 }
 
-unsigned handleAdminMakeAdminRead(struct selector_key * key) {
-    const clientConfigData *data = key->data;
+unsigned handle_admin_make_admin_read(struct selector_key * key) {
+    const client_config_data *data = key->data;
     const int fd = key->fd;
     size_t available;
-    uint8_t *ptr = buffer_write_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_write_ptr(data->client_buffer, &available);
 
-    const ssize_t numBytesRcvd = recv(fd, ptr, available, 0);
-    if (numBytesRcvd <= 0) {
-        if (numBytesRcvd == 0) {
+    const ssize_t num_bytes_rcvd = recv(fd, ptr, available, 0);
+    if (num_bytes_rcvd <= 0) {
+        if (num_bytes_rcvd == 0) {
             log(INFO, "Client socket %d closed connection", fd);
             return CONFIG_DONE;
         }
@@ -393,13 +392,13 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
         return ERROR_CONFIG_CLIENT;
     }
 
-    buffer_write_adv(data->clientBuffer, numBytesRcvd);
-    size_t readAvailable;
-    const uint8_t * readPtr = buffer_read_ptr(data->clientBuffer, &readAvailable);
+    buffer_write_adv(data->client_buffer, num_bytes_rcvd);
+    size_t read_available;
+    const uint8_t * read_ptr = buffer_read_ptr(data->client_buffer, &read_available);
 
-    if (readAvailable < 1) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
+    if (read_available < 1) return ADMIN_MAKE_ADMIN_READ; // versión, rsv, código (1 byte)
 
-    const uint8_t ulen = readPtr[0];
+    const uint8_t ulen = read_ptr[0];
     if (ulen > MAX_USERNAME_LEN || ulen < 1) {
         log(ERROR, "Username length exceeds maximum: %u", ulen);
         if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
@@ -409,14 +408,14 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
         return attempt_send_bad_request_error(key);
     }
     char username[MAX_USERNAME_LEN + 1] = {0};
-    memcpy(username,    readPtr + 1,  ulen);
+    memcpy(username,    read_ptr + 1,  ulen);
 
-    buffer_read_adv(data->clientBuffer, ulen + 1);
+    buffer_read_adv(data->client_buffer, ulen + 1);
 
     int flag = 1;
 
     log(INFO, "received username: %s", username);
-    if (!makeAdmin(username, ulen)) {
+    if (!make_admin(username, ulen)) {
         flag = 0;
     }
 
@@ -424,15 +423,15 @@ unsigned handleAdminMakeAdminRead(struct selector_key * key) {
         log(ERROR, "Failed to set interest for client socket %d", fd);
         return ERROR_CONFIG_CLIENT;
     }
-    return attemptAdminMakeAdminWrite(key, flag);
+    return attempt_admin_make_admin_write(key, flag);
 }
 
-unsigned handleAdminMakeAdminWrite(struct selector_key *key) {
-   return genericWrite(key, CONFIG_DONE, ADMIN_MAKE_ADMIN);
+unsigned handle_admin_make_admin_write(struct selector_key *key) {
+   return generic_write(key, CONFIG_DONE, ADMIN_MAKE_ADMIN);
 }
 
 
-bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
+bool prepare_user_metrics_buffer_from_auth(client_config_data *data) {
     char *buffer = NULL;
     size_t size = 0;
 
@@ -441,15 +440,15 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
         return false;
     }
 
-    user_metrics *um = get_or_create_user_metrics(data->authInfo.username);
+    user_metrics *um = get_or_create_user_metrics(data->auth_info.username);
     if (!um) {
-        log(ERROR, "User metrics not found for %s", data->authInfo.username);
+        log(ERROR, "User metrics not found for %s", data->auth_info.username);
         fclose(memfile);
         free(buffer);
         return false;
     }
 
-    print_user_metrics_tabbed(um, data->authInfo.username, memfile);
+    print_user_metrics_tabbed(um, data->auth_info.username, memfile);
     fflush(memfile);
     fclose(memfile);  // Esto finaliza el stream y setea `size`
 
@@ -478,45 +477,45 @@ bool prepare_user_metrics_buffer_from_auth(clientConfigData *data) {
 }
 
 unsigned send_metrics_fail_response(struct selector_key * key) {
-    const clientConfigData *data = key->data;
-    const int clntSocket = key->fd;
+    const client_config_data *data = key->data;
+    const int clnt_socket = key->fd;
 
     size_t available;
-    uint8_t *ptr = buffer_read_ptr(data->clientBuffer, &available);
+    uint8_t *ptr = buffer_read_ptr(data->client_buffer, &available);
 
-    ssize_t bytesSent = send(clntSocket, ptr, available, 0);
-    if (bytesSent < 0) {
+    ssize_t bytes_sent = send(clnt_socket, ptr, available, 0);
+    if (bytes_sent < 0) {
         if (errno == ECONNRESET) {
-            log(INFO, "Client socket %d closed connection", clntSocket);
+            log(INFO, "Client socket %d closed connection", clnt_socket);
             return CONFIG_DONE; // El cliente cerró la conexión
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return SEND_FAILURE_RESPONSE; // El socket está bloqueado, intenta de nuevo
         }
-        log(ERROR, "Failed to send metrics failure response to client socket %d: %s", clntSocket, strerror(errno));
+        log(ERROR, "Failed to send metrics failure response to client socket %d: %s", clnt_socket, strerror(errno));
         return ERROR_CONFIG_CLIENT; // Error al enviar la respuesta de fallo
-    } else if (bytesSent < METRICS_FAILURE_RESPONSE_SIZE) {
-        buffer_read_adv(data->clientBuffer, bytesSent);
+    } else if (bytes_sent < METRICS_FAILURE_RESPONSE_SIZE) {
+        buffer_read_adv(data->client_buffer, bytes_sent);
         return SEND_FAILURE_RESPONSE; // No se envió , sigamos despues
-    } else if (bytesSent == 0) {
-        log(INFO, "Client socket %d closed connection after sending metrics failure response", clntSocket);
+    } else if (bytes_sent == 0) {
+        log(INFO, "Client socket %d closed connection after sending metrics failure response", clnt_socket);
         return CONFIG_DONE; // El cliente cerró la conexión
     } else {
-        log(INFO, "Metrics failure response sent to client socket %d", clntSocket);
+        log(INFO, "Metrics failure response sent to client socket %d", clnt_socket);
         return CONFIG_DONE;
     }
 }
 
-unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, const unsigned next_state) {
+unsigned send_metrics_buffer(client_config_data *data, int clnt_socket, const unsigned next_state) {
     const size_t to_send = data->metrics_buf_len - data->metrics_buf_offset;
-    const ssize_t sent = send(clntSocket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
+    const ssize_t sent = send(clnt_socket, data->metrics_buf + data->metrics_buf_offset, to_send, 0);
     if (sent < 0) {
         if (errno == ECONNRESET) {
-            log(INFO, "Client socket %d closed connection", clntSocket);
+            log(INFO, "Client socket %d closed connection", clnt_socket);
             return CONFIG_DONE; // El cliente cerró la conexión
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
-            log(INFO, "Socket %d would block, try again later", clntSocket);
+            log(INFO, "Socket %d would block, try again later", clnt_socket);
             return next_state; // El socket está bloqueado, intenta de nuevo
         }
         free(data->metrics_buf);
@@ -531,13 +530,13 @@ unsigned send_metrics_buffer(clientConfigData *data, int clntSocket, const unsig
         data->metrics_buf = NULL;
         data->metrics_buf_len = 0;
         data->metrics_buf_offset = 0;
-        buffer_reset(data->clientBuffer);
+        buffer_reset(data->client_buffer);
         return CONFIG_DONE;
     }
     return next_state;
 }
 
-void prepare_global_metrics_buffer(clientConfigData *data) {
+void prepare_global_metrics_buffer(client_config_data *data) {
     char *buffer = NULL;
     size_t size = 0;
 
@@ -549,10 +548,10 @@ void prepare_global_metrics_buffer(clientConfigData *data) {
     bool any_connection = false;
     fprintf(memfile, "\n==== ALL USER CONNECTIONS ====\n");
     for (size_t i = 0; i < MAX_USERS; i++) {
-        if (socksArgs->users[i].name != NULL) {
-            user_metrics *um = get_or_create_user_metrics(socksArgs->users[i].name);
+        if (socks_args->users[i].name != NULL) {
+            user_metrics *um = get_or_create_user_metrics(socks_args->users[i].name);
             if (um && um->connections_tree.root != NULL) {
-                print_all_users_metrics_tabbed(um, socksArgs->users[i].name, memfile);
+                print_all_users_metrics_tabbed(um, socks_args->users[i].name, memfile);
                 any_connection = true;
             }
         }
@@ -591,7 +590,7 @@ void prepare_global_metrics_buffer(clientConfigData *data) {
     data->metrics_buf_offset = 0;
 }
 
-void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
+void prepare_user_metrics_buffer(client_config_data *data, user_metrics *um) {
     char *buffer = NULL;
     size_t size = 0;
 
@@ -623,16 +622,16 @@ void prepare_user_metrics_buffer(clientConfigData *data, user_metrics *um) {
     data->metrics_buf_offset = 0;
 }
 
-unsigned attemptAdminMetricsWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    const int clntSocket = key->fd;
+unsigned attempt_admin_metrics_write(struct selector_key *key) {
+    client_config_data *data = key->data;
+    const int clnt_socket = key->fd;
 
     if (data->target_ulen == 0) {
         if (data->metrics_buf == NULL) {
             prepare_global_metrics_buffer(data);
             if (data->metrics_buf == NULL) return CONFIG_DONE;
         }
-        return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
+        return send_metrics_buffer(data, clnt_socket, ADMIN_METRICS_SEND);
     }
 
     user_metrics *um = get_or_create_user_metrics(data->target_username);
@@ -644,29 +643,29 @@ unsigned attemptAdminMetricsWrite(struct selector_key *key) {
         prepare_user_metrics_buffer(data, um);
         if (data->metrics_buf == NULL) return CONFIG_DONE;
     }
-    return send_metrics_buffer(data, clntSocket, ADMIN_METRICS_SEND);
+    return send_metrics_buffer(data, clnt_socket, ADMIN_METRICS_SEND);
 }
 
-unsigned handleAdminMetricsWrite(struct selector_key *key) {
+unsigned handle_admin_metrics_write(struct selector_key *key) {
     return send_metrics_buffer(key->data, key->fd, ADMIN_METRICS_SEND);
 }
-unsigned handleUserMetricsWrite(struct selector_key *key) {
+unsigned handle_user_metrics_write(struct selector_key *key) {
     return send_metrics_buffer(key->data, key->fd, USER_METRICS);
 }
 
-unsigned attemptUserMetricsWrite(struct selector_key *key) {
-    clientConfigData *data = key->data;
-    const int clntSocket = key->fd;
+unsigned attempt_user_metrics_write(struct selector_key *key) {
+    client_config_data *data = key->data;
+    const int clnt_socket = key->fd;
 
     if (data->metrics_buf == NULL) {
         if (!prepare_user_metrics_buffer_from_auth(data)) {
             const uint8_t response[3] = { CONFIG_VERSION, RSV, STATUS_SERVER_GENERAL_FAILURE };
-            buffer_reset(data->clientBuffer);
-            memcpy(data->clientBuffer->write, response, METRICS_FAILURE_RESPONSE_SIZE);
-            buffer_write_adv(data->clientBuffer, METRICS_FAILURE_RESPONSE_SIZE);
+            buffer_reset(data->client_buffer);
+            memcpy(data->client_buffer->write, response, METRICS_FAILURE_RESPONSE_SIZE);
+            buffer_write_adv(data->client_buffer, METRICS_FAILURE_RESPONSE_SIZE);
             return send_metrics_fail_response(key);
         }
     }
 
-    return send_metrics_buffer(data, clntSocket, USER_METRICS);
+    return send_metrics_buffer(data, clnt_socket, USER_METRICS);
 }

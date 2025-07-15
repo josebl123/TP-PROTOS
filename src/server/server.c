@@ -66,25 +66,25 @@ void setup_signal_handlers() {
     signal(SIGILL, signal_handler);
 }
 
-struct fdselector *selector = NULL; // Global selector variable
-struct socks5args *socksArgs = NULL; // Global args variable
+struct fd_selector *selector = NULL; // Global selector variable
+struct socks5args *socks_args = NULL; // Global args variable
 int master_socket = -1; // Global master socket for client connections
-uint32_t bufferSize = MAX_BUFFER_SIZE; // Global buffer size
+uint32_t buffer_size = MAX_BUFFER_SIZE; // Global buffer size
 
 void cleanup(const int signum) {
     // Handle cleanup on signal
     printf("Received signal %d, cleaning up...\n", signum);
     selector_destroy(selector);
-    if (socksArgs != NULL) {
-        free(socksArgs);
+    if (socks_args != NULL) {
+        free(socks_args);
     }
     exit(EXIT_SUCCESS);
 }
 int main(const int argc, char *argv[])
 {
     setup_signal_handlers();
-    socksArgs = malloc(sizeof(struct socks5args));
-    parse_args(argc, argv, socksArgs); // Parse command line arguments
+    socks_args = malloc(sizeof(struct socks5args));
+    parse_args(argc, argv, socks_args); // Parse command line arguments
 
     metrics_init();
     init_user_metrics_table();
@@ -114,15 +114,15 @@ int main(const int argc, char *argv[])
         exit(EXIT_FAILURE);
     }
 
-    master_socket = setupTCPServerSocket( socksArgs->socks_addr, socksArgs->socks_port);
+    master_socket = setup_tcp_server_socket( socks_args->socks_addr, socks_args->socks_port);
     if (master_socket < 0) {
         perror("Failed to setup TCP server socket");
         exit(EXIT_FAILURE);
     }
 
     selector_register(selector, master_socket, &(fd_handler){
-        .handle_read =  handleMasterRead, // funcion para crear sockets activos
-        .handle_close = handleMasterClose,
+        .handle_read =  handle_master_read, // funcion para crear sockets activos
+        .handle_close = handle_master_close,
     }, OP_READ, NULL);
 
     if (selector_fd_set_nio(master_socket) == -1) {
@@ -131,14 +131,14 @@ int main(const int argc, char *argv[])
         exit(EXIT_FAILURE);
     } // para que no bloquee
 
-    const int master_socket_config = setupTCPServerSocket(socksArgs->mng_addr, socksArgs->mng_port);
+    const int master_socket_config = setup_tcp_server_socket(socks_args->mng_addr, socks_args->mng_port);
     if (master_socket_config < 0) {
         perror("Failed to setup TCP server socket for config");
         exit(EXIT_FAILURE);
     }
     selector_register(selector, master_socket_config, &(fd_handler){
-        .handle_read = handleConfigRead, // funcion para crear sockets activos
-        .handle_close = handleServerConfigClose,
+        .handle_read = handle_config_read, // funcion para crear sockets activos
+        .handle_close = handle_server_config_close,
     }, OP_READ, NULL);
 
     if (selector_fd_set_nio(master_socket_config) == -1) {
