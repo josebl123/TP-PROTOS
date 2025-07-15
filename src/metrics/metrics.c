@@ -26,11 +26,16 @@ void metrics_init(void) {
     metrics.server_errors = 0;
     metrics.unsupported_input = 0;
     metrics.login_errors = 0;
+    metrics.host_unreachable = 0;
 }
 
 void metrics_new_connection(void) {
     metrics.total_connections++;
     metrics.current_connections++;
+}
+
+void metrics_add_host_unreachable_error(void) {
+    metrics.host_unreachable++;
 }
 
 void add_new_login_error(void) {
@@ -190,7 +195,8 @@ void print_global_metrics(FILE *out) {
         "ipv6_connections: %lu\n"
         "server_errors: %lu\n"
         "auth_errors: %lu\n"
-        "unsupported_input: %lu\n\n",
+        "unsupported_input: %lu\n"
+        "host_unreachable: %lu\n\n",
         metrics.total_connections,
         metrics.current_connections,
         metrics.bytes_client_to_remote,
@@ -203,7 +209,8 @@ void print_global_metrics(FILE *out) {
         metrics.ipv6_connections,
         metrics.server_errors,
         metrics.login_errors,
-        metrics.unsupported_input
+        metrics.unsupported_input,
+        metrics.host_unreachable
     );
 }
 
@@ -223,6 +230,8 @@ void print_global_metrics_tabbed(FILE *out) {
     fprintf(out, "ipv6_connections\t%lu\n", metrics.ipv6_connections);
     fprintf(out, "server_errors\t%lu\n", metrics.server_errors);
     fprintf(out, "unsupported_input\t%lu\n", metrics.unsupported_input);
+    fprintf(out, "auth_errors\t%lu\n", metrics.login_errors);
+    fprintf(out, "host_unreachable\t%lu\n", metrics.host_unreachable);
 }
 
 

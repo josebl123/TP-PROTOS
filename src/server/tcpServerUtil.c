@@ -274,7 +274,7 @@ void getAddrInfoCallBack(union sigval sigval) {
             freeaddrinfo(req->request.ar_result); // Free the address info structure
         }
         data->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
-        metrics_add_server_error();
+        metrics_add_host_unreachable_error();
         data->addressResolved = 1; // Mark the address as resolved (failed)
         if (selector_notify_block(req->fdSelector, req->fd) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to notify selector for fd %d", req->fd);
@@ -379,7 +379,7 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
             log(ERROR, "getaddrinfo_a() failed for domain %s: %s",
                 destination->address.domainName, gai_strerror(gaiResult));
             data->responseStatus = SOCKS5_HOST_UNREACHABLE;
-            metrics_add_dns_resolution_error();
+            metrics_add_host_unreachable_error();
             return -1;
         }
 
@@ -405,7 +405,6 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         log(ERROR, "connect() failed: %s", strerror(errno));
         int error = errno;
         setResponseStatus(data, error); // Set the appropriate response status based on the error
-        metrics_add_server_error(); // TODO: Is this a server error?
         return -1;
     }
 

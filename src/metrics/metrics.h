@@ -21,6 +21,7 @@ typedef struct {
     uint64_t ipv4_connections;
     uint64_t ipv6_connections;
     uint64_t login_errors;
+    uint64_t host_unreachable;
 } Metrics;
 
 typedef struct {
@@ -47,6 +48,7 @@ void metrics_add_ipv4_connection(void);
 void metrics_add_ipv6_connection(void);
 void metrics_add_server_error(void);
 void metrics_add_unsupported_input(void);
+void metrics_add_host_unreachable_error(void);
 
 void user_metrics_init(user_metrics* um);
 void user_metrics_add_connection(user_metrics* um, const user_connection* new_conn_data);
