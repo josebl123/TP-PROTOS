@@ -562,6 +562,11 @@ void handleMasterRead(struct selector_key *key) {
     }
 
     getpeername(new_socket, (struct sockaddr*)&address, &addrlen);
+    if (address.sin_family != AF_INET && address.sin_family != AF_INET6) {
+        log(ERROR, "Unsupported address family: %d", address.sin_family);
+        close(new_socket);
+        return;
+    }
 
     // Prepare client data structure
     clientData *data = calloc(1, sizeof(clientData));
@@ -585,8 +590,6 @@ void handleMasterRead(struct selector_key *key) {
         const struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&address;
         memcpy(&data->origin.address.ipv6, &addr6->sin6_addr, sizeof(struct in6_addr));
         data->origin.port = ntohs(addr6->sin6_port);
-    } else {
-        log(ERROR, "Unsupported address family");
     }
 
 
