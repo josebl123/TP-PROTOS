@@ -5,7 +5,7 @@
 #ifndef SERVER_H
 #define SERVER_H
 #include <stdbool.h>
-#define MAX_CONNECTIONS 500 // Maximum number of concurrent connections
+#define MAX_CONNECTIONS 501 // Maximum number of concurrent connections
 extern struct socks5args *socksArgs;
 extern uint32_t bufferSize;
 extern int master_socket;

@@ -22,7 +22,7 @@
 #include "../utils/user_metrics_table.h"
 
 
-#define MAXPENDING 15 // Maximum outstanding connection requests TODO i changed this, was 5
+#define MAXPENDING 20 // Maximum outstanding connection requests
 #define TIMEOUT_INCOMPLETE_MSG_SEC (60 * 2)
 
 static char addrBuffer[MAX_ADDR_BUFFER];
@@ -72,22 +72,16 @@ void handleTcpClose(  struct selector_key *key) {
         user_metrics_add_connection(user_metrics, &data->current_user_conn);
     }
 
-//    free(data->dnsRequest);
     free(data->stm);
     free(data->remote_stm);
     free(data);
-    // Close the client socket
+
     close(key->fd);
 }
 void handleRemoteClose( struct selector_key *key) {
     close(key->fd);
 }
 void clientClose(const unsigned state, struct selector_key *key) {
-    // if (state == ERROR_CLIENT) {
-    //     log(ERROR, "Closing socket %d due to error", key->fd);
-    // } else {
-    //     log(INFO, "Closing socket %d after completion", key->fd);
-    // }
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
@@ -95,11 +89,6 @@ void clientClose(const unsigned state, struct selector_key *key) {
 
 void remoteClose(const unsigned state, struct selector_key *key) {
     clientData *data =  key->data;
-    // if (state == RELAY_ERROR) {
-    //     log(ERROR, "Closing remote socket %d due to error", key->fd);
-    // } else {
-    //     log(INFO, "Closing remote socket %d after completion", key->fd);
-    // }
     selector_unregister_fd(key->s, data->clientSocket);
 }
 
