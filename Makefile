@@ -74,6 +74,8 @@ test: dirs $(BIN_DIR)/$(TEST_BIN)
 
 client: dirs $(BIN_DIR)/$(CLIENT_BIN)
 
+server: dirs $(BIN_DIR)/$(BIN)
+
 dirs:
 	mkdir -p $(DIRS)
 
