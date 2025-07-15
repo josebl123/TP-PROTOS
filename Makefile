@@ -39,24 +39,10 @@ CLIENT_SRCS = $(SRC_DIR)/client/client.c \
               $(SRC_DIR)/client/clientRequest.c \
               $(SRC_DIR)/client/clientConfig.c \
 
-# Source files for the tests
-TEST_SRCS = $(SRC_DIR)/test/buffer_test.c \
-       $(SRC_DIR)/buffer.c \
-       $(SRC_DIR)/test/netutils_test.c \
-       $(SRC_DIR)/utils/netutils.c \
-       $(SRC_DIR)/test/parser_test.c \
-       $(SRC_DIR)/parser.c \
-       $(SRC_DIR)/test/parser_utils_test.c \
-       $(SRC_DIR)/parser_utils.c \
-       $(SRC_DIR)/test/selector_test.c \
-       $(SRC_DIR)/selector.c \
-       $(SRC_DIR)/test/stm_test.c \
-       $(SRC_DIR)/stm.c
 
 # Object files
 SERVER_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(SERVER_SRCS))
 CLIENT_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(CLIENT_SRCS))
-TEST_OBJS = $(patsubst $(SRC_DIR)/%.c, $(OBJ_DIR)/%.o, $(TEST_SRCS))
 
 # Include directories
 INCLUDES = -I$(SRC_DIR)
@@ -65,12 +51,10 @@ INCLUDES = -I$(SRC_DIR)
 CHECK_FLAGS = $(shell pkg-config --cflags --libs check)
 
 # Ensure the directories exist
-DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/client $(OBJ_DIR)/test $(OBJ_DIR)/metrics
+DIRS = $(OBJ_DIR) $(BIN_DIR) $(OBJ_DIR)/utils $(OBJ_DIR)/server $(OBJ_DIR)/client $(OBJ_DIR)/metrics
 .PHONY: all clean test client runclient
 
 all: dirs $(BIN_DIR)/$(BIN) $(BIN_DIR)/$(CLIENT_BIN)
-
-test: dirs $(BIN_DIR)/$(TEST_BIN)
 
 client: dirs $(BIN_DIR)/$(CLIENT_BIN)
 
@@ -86,10 +70,6 @@ $(BIN_DIR)/$(BIN): $(SERVER_OBJS)
 # Client target
 $(BIN_DIR)/$(CLIENT_BIN): $(CLIENT_OBJS)
 	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread
-
-# Test target
-$(BIN_DIR)/$(TEST_BIN): $(TEST_OBJS)
-	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $^ -lpthread -lanl $(CHECK_FLAGS)
 
 # Compile source files
 $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
@@ -107,15 +87,8 @@ run: all
 runclient: client
 	./$(BIN_DIR)/$(CLIENT_BIN)
 
-# Run the tests
-runtest: test
-	./$(BIN_DIR)/$(TEST_BIN)
-
 valgrind: $(BIN_DIR)/$(BIN)
 	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(BIN)
-
-valgrindtest: $(BIN_DIR)/$(TEST_BIN)
-	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(TEST_BIN)
 
 valgrindclient: $(BIN_DIR)/$(CLIENT_BIN)
 	valgrind --leak-check=full --show-leak-kinds=all ./$(BIN_DIR)/$(CLIENT_BIN)
