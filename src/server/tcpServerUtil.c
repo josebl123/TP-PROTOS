@@ -22,7 +22,7 @@
 #include "../utils/user_metrics_table.h"
 
 
-#define MAXPENDING 15 // Maximum outstanding connection requests
+#define MAXPENDING 20 // Maximum outstanding connection requests
 #define TIMEOUT_INCOMPLETE_MSG_SEC (60 * 2)
 
 static char addr_buffer[MAX_ADDR_BUFFER];
@@ -70,22 +70,16 @@ void handle_tcp_close(  struct selector_key *key) {
         user_metrics_add_connection(user_metrics, &data->current_user_conn);
     }
 
-//    free(data->dns_request);
     free(data->stm);
     free(data->remote_stm);
     free(data);
-    // Close the client socket
+
     close(key->fd);
 }
 void handle_remote_close( struct selector_key *key) {
     close(key->fd);
 }
 void client_close(const unsigned state, struct selector_key *key) {
-    // if (state == ERROR_CLIENT) {
-    //     log(ERROR, "Closing socket %d due to error", key->fd);
-    // } else {
-    //     log(INFO, "Closing socket %d after completion", key->fd);
-    // }
 
     selector_unregister_fd(key->s, key->fd); // Desregistrar el socket del selector
 }
@@ -93,11 +87,6 @@ void client_close(const unsigned state, struct selector_key *key) {
 
 void remote_close(const unsigned state, struct selector_key *key) {
     client_data *data =  key->data;
-    // if (state == RELAY_ERROR) {
-    //     log(ERROR, "Closing remote socket %d due to error", key->fd);
-    // } else {
-    //     log(INFO, "Closing remote socket %d after completion", key->fd);
-    // }
     selector_unregister_fd(key->s, data->client_socket);
 }
 
@@ -570,6 +559,11 @@ void handle_master_read(struct selector_key *key) {
     }
 
     getpeername(new_socket, (struct sockaddr*)&address, &addr_len);
+    if (address.sin_family != AF_INET && address.sin_family != AF_INET6) {
+        log(ERROR, "Unsupported address family: %d", address.sin_family);
+        close(new_socket);
+        return;
+    }
 
     // Prepare client data structure
     client_data *data = calloc(1, sizeof(client_data));
@@ -593,8 +587,6 @@ void handle_master_read(struct selector_key *key) {
         const struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&address;
         memcpy(&data->origin.address.ipv6, &addr6->sin6_addr, sizeof(struct in6_addr));
         data->origin.port = ntohs(addr6->sin6_port);
-    } else {
-        log(ERROR, "Unsupported address family");
     }
 
 

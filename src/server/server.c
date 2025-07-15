@@ -32,39 +32,7 @@
 #define INITIAL_MAX_FDS 1024
 #define MAX_BUFFER_SIZE 4096 // 4MB, maximum buffer size for client and remote buffers
 #define DEFAULT_TIMEOUT 5
-#include <stdio.h>
-#include <stdlib.h>
-#include <signal.h>
-#include <string.h>
-#include <unistd.h>
 
-void signal_handler(int signum) {
-    const char *signal_name;
-
-    switch(signum) {
-        case SIGINT:  signal_name = "SIGINT";  break;
-        case SIGTERM: signal_name = "SIGTERM"; break;
-        case SIGSEGV: signal_name = "SIGSEGV"; break;
-        case SIGABRT: signal_name = "SIGABRT"; break;
-        case SIGFPE:  signal_name = "SIGFPE";  break;
-        case SIGILL:  signal_name = "SIGILL";  break;
-        default:      signal_name = "UNKNOWN"; break;
-    }
-
-    fprintf(stderr, "Caught signal %d (%s). Exiting.\n", signum, signal_name);
-    // Opcional: si querés imprimir un backtrace podés usar backtrace() y backtrace_symbols()
-
-    _exit(EXIT_FAILURE); // salir inmediatamente
-}
-
-void setup_signal_handlers() {
-    signal(SIGINT, signal_handler);
-    signal(SIGTERM, signal_handler);
-    signal(SIGSEGV, signal_handler);
-    signal(SIGABRT, signal_handler);
-    signal(SIGFPE, signal_handler);
-    signal(SIGILL, signal_handler);
-}
 
 struct fd_selector *selector = NULL; // Global selector variable
 struct socks5args *socks_args = NULL; // Global args variable
@@ -82,7 +50,6 @@ void cleanup(const int signum) {
 }
 int main(const int argc, char *argv[])
 {
-    setup_signal_handlers();
     socks_args = malloc(sizeof(struct socks5args));
     parse_args(argc, argv, socks_args); // Parse command line arguments
 

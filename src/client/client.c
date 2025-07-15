@@ -3,7 +3,6 @@
 //
 #define TRUE   1
 #define FALSE  0
-#define INITIAL_MAX_CLIENTS 600
 
 #include "client.h"
 #include "args.h"

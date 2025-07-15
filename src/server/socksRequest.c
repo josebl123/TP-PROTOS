@@ -82,7 +82,6 @@ unsigned send_failure_response(client_data *data, int clnt_socket, unsigned erro
     if (num_bytes_sent < 0) {
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             // No se pudo enviar por ahora, volver a intentar más tarde
-            log(INFO, "send() would block on client socket %d, retrying later", clnt_socket);
             if (selector_set_interest_key(key, OP_WRITE) != SELECTOR_SUCCESS) {
                 log(ERROR, "Failed to set interest for client socket %d", clnt_socket);
                 return error;
@@ -90,10 +89,6 @@ unsigned send_failure_response(client_data *data, int clnt_socket, unsigned erro
             return FAILURE_RESPONSE; // Return to retry later
         }
         log(ERROR, "send() failed on client socket %d: %s", clnt_socket, strerror(errno));
-    } else if (num_bytes_sent == 0) {
-        log(INFO, "Client socket %d closed connection", clnt_socket);
-    } else {
-        log(INFO, "Sent failure response to client socket %d", clnt_socket);
     }
     return error;
 }

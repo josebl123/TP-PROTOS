@@ -33,7 +33,7 @@ void metrics_init(void) {
 void metrics_new_connection(void) {
     metrics.total_connections++;
     metrics.current_connections++;
-    if (metrics.current_connections > MAX_CONNECTIONS) {
+    if (metrics.current_connections >= MAX_CONNECTIONS) {
         selector_set_interest(selector, master_socket, OP_NOOP); // Disable listening for new connections
     }
 }
