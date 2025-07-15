@@ -462,7 +462,7 @@ unsigned handleCallBack(struct selector_key *key, void *data) {
     if (res->gai_error != 0) {
         log(ERROR, "getaddrinfo() failed: %s", gai_strerror(res->gai_error));
         clientData->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
-        metrics_add_server_error();
+        metrics_add_dns_resolution_error();
         clientData->addressResolved = 1; // Mark the address as resolved (failed)
         free(res);
         return sendFailureResponseClient(key); // Exit if getaddrinfo failed
