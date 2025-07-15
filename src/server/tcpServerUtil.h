@@ -108,6 +108,7 @@ struct dnsRes {
 struct dnsReq{
     clientData * clientData; // Pointer to the client data structure
     struct gaicb *request;
+    struct gaicb **list; // Pointer to the list of DNS requests
     fd_selector fdSelector;
     struct addrinfo *hints; // Pointer to the address info for the DNS request
     int fd; // File descriptor for the DNS request
@@ -136,6 +137,7 @@ struct dnsReq{
 
      struct dnsReq *dnsRequest; // Pointer to the DNS request structure
      int addressResolved; // Flag to indicate if the callback is ready
+     int callBackFinished;
 
      struct addrinfo *remoteAddrInfo; // Address info for the remote connection in case we need to try another address
      struct addrinfo *pointerToFree; // Pointer to the address info to free later

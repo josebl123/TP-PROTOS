@@ -269,16 +269,18 @@ void getAddrInfoCallBack(union sigval sigval) {
     struct dnsRes *dnsResponse = malloc(sizeof(struct dnsRes)); // Allocate memory for the DNS response
     if (dnsResponse == NULL) {
         log(ERROR, "Failed to allocate memory for DNS response");
-        req->clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
         metrics_add_host_unreachable_error();
-        return;
+    } else {
+        dnsResponse->gai_error = gai_error(req->request); // Get the error code from the request
+        dnsResponse->addrinfo = req->request->ar_result; // Get the address info from the request
     }
-
-    dnsResponse->gai_error = gai_error(req->request); // Get the error code from the request
-    dnsResponse->addrinfo = req->request->ar_result; // Get the address info from the request
 
     if (selector_notify_block(req->fdSelector, req->fd, dnsResponse) != SELECTOR_SUCCESS) {
         log(ERROR, "Failed to notify selector for fd %d", req->fd);
+        free(req->request);
+        free(req->hints);
+        free(req->list);
+        free(req);
     }
 }
 
@@ -365,13 +367,15 @@ int setupTCPRemoteSocket(const struct destinationInfo *destination,  struct sele
         list[0] = request; // Set the first request in the list
         list[1] = NULL; // Null-terminate the list
 
+        dnsRequest->list = list; // Set the request list in the DNS request structure
+
         // Set up signal event for the callback
         struct sigevent sigevent = {0}; // Initialize the sigevent structure
         sigevent.sigev_notify = SIGEV_THREAD;  // Use a thread to handle the callback
         sigevent.sigev_notify_function = getAddrInfoCallBack;  // Set the callback function
         sigevent.sigev_value.sival_ptr = dnsRequest;  // Pass the DNS request to the callback
 
-        // Set the interest to OP_NOOP to wait for the DNS resolution callback
+        // Set the interest to OP_NOOP to wait for the DNS resolution callbackx
         if (selector_set_interest_key(key, OP_NOOP) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to set interest for DNS request key %d", key->fd);
             data->responseStatus = SOCKS5_GENERAL_FAILURE;
@@ -460,6 +464,17 @@ unsigned handleCallBack(struct selector_key *key, void *data) {
     struct dnsRes *res = data; // Get the DNS request from the data pointer
     clientData *clientData = key->data; // Get the client data from the request
 
+    if (res == NULL) {
+        log(ERROR, "DNS resolution callback received NULL response");
+        clientData->responseStatus = SOCKS5_GENERAL_FAILURE; // Set general failure status
+        return sendFailureResponseClient(key); // Exit if the response is NULL
+    } else {
+        free(clientData->dnsRequest->request); // Free the request structure
+        free(clientData->dnsRequest->hints); // Free the hints structure
+        free(clientData->dnsRequest->list); // Free the request list
+        free(clientData->dnsRequest); // Free the DNS request structure
+    }
+
     if (res->gai_error != 0) {
         log(ERROR, "getaddrinfo() failed: %s", gai_strerror(res->gai_error));
         clientData->responseStatus = SOCKS5_HOST_UNREACHABLE; // Set the response status to host unreachable
@@ -524,6 +539,7 @@ int initializeClientData(clientData *data) {
     data->pointerToFree = NULL; // Initialize remote address info to NULL
 
     data->addressResolved = 0; // Initialize address resolved flag to false
+    data->callBackFinished = 0; // Initialize callback finished flag to false
 
     data->authMethod = NO_ACCEPTABLE_METHODS; // Error auth method
     data->stm = stm; // Assign the state machine to client data
