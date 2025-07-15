@@ -3,7 +3,7 @@
 //
 #define TRUE   1
 #define FALSE  0
-#define INITIAL_MAX_CLIENTS 500
+#define INITIAL_MAX_CLIENTS 600
 
 #include "client.h"
 #include "args.h"
@@ -50,8 +50,10 @@ int main(int argc, char** argv) {
 
  clntSocket = tcpClientSocket(client_args.addr, client_args.port);
 
+  if (clntSocket < 0)
+    handleClientClose(ERROR_CLIENT, data); // Handle error in client socket creation
 
-  unsigned status  = handleAuthWrite(data); // Start with authentication write
+  const unsigned status  = handleAuthWrite(data); // Start with authentication write
 
   handleClientClose(status, data);
 

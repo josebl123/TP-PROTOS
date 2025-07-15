@@ -40,16 +40,17 @@ int tcpClientSocket(const char *host, const char *service) {
 
     int sock = -1;
     for (struct addrinfo *addr = servAddr; addr != NULL && sock == -1; addr = addr->ai_next) {
+        char addrBuffer[MAX_ADDR_BUFFER];
         sock = socket(addr->ai_family, addr->ai_socktype, addr->ai_protocol);
         if (sock >= 0) {
             errno = 0;
             if (connect(sock, addr->ai_addr, addr->ai_addrlen) != 0) {
                 close(sock);
                 sock = -1;
+                printf("Connection failed on %s: %s\n", printAddressPort(addr, addrBuffer), strerror(errno));
             }
         } else {
-            char addrBuffer[MAX_ADDR_BUFFER];
-            log(DEBUG, "Can't create client socket on %s", printAddressPort(addr, addrBuffer));
+           printf( "Can't create client socket on %s", printAddressPort(addr, addrBuffer));
         }
     }
 

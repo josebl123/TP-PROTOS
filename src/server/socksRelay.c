@@ -70,7 +70,6 @@ int handleRelayRemoteWriteToClientAttempt(struct selector_key *key) {
         return RELAY_ERROR;
     }
     if (numBytesSent == 0) {
-        log(INFO, "Remote socket %d closed connection", clntFd);
         return RELAY_DONE;
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
@@ -103,7 +102,6 @@ int handleRelayClientWriteToRemoteAttempt(struct selector_key *key) {
         return ERROR_CLIENT;
     }
     if (numBytesSent == 0) {
-        log(INFO, "Remote socket %d closed connection", remoteSocket);
         return DONE;
     }
     buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
@@ -139,7 +137,6 @@ int handleRelayClientReadFromRemoteAttempt(struct selector_key *key) {
         return ERROR_CLIENT;
     }
     if (numBytesRcvd == 0) {
-        log(INFO, "Remote socket %d closed connection", remoteSocket);
         return DONE;
     }
     buffer_write_adv(data->remoteBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
@@ -170,14 +167,12 @@ int handleRelayRemoteReadFromClientAttempt(struct selector_key *key) {
         }
         log(ERROR, "recv() failed on client socket %d: %s", clntSocket, strerror(errno));
         if ( errno == ECONNRESET) {
-            log(INFO, "Client socket %d closed connection", clntSocket);
             return RELAY_DONE; // El cliente cerró la conexión
         }
         metrics_add_receive_error();
         return RELAY_ERROR;
     }
     if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return RELAY_DONE;
     }
     buffer_write_adv(data->remoteBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
@@ -206,7 +201,6 @@ unsigned handleRelayClientRead(struct selector_key *key){
         return ERROR_CLIENT;
     }
     if (numBytesRcvd == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
     buffer_write_adv(data->clientBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
@@ -230,7 +224,6 @@ unsigned handleRelayClientWrite(struct selector_key *key){
         return ERROR_CLIENT;
     }
     if (numBytesSent == 0) {
-        log(INFO, "Client socket %d closed connection", clntSocket);
         return DONE;
     }
     buffer_read_adv(data->remoteBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer
@@ -249,7 +242,6 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
     const ssize_t numBytesRcvd = recv(remoteSocket, writePtr, writeLimit, 0);
     if (numBytesRcvd < 0) {
         if ( errno == ECONNRESET) {
-            log(INFO, "Client socket %d closed connection", remoteSocket);
             return RELAY_DONE; // El cliente cerró la conexión
         }
         log(ERROR, "recv() failed on remote socket %d", remoteSocket);
@@ -258,7 +250,6 @@ unsigned handleRelayRemoteRead(struct selector_key *key) {
         return RELAY_ERROR;
     }
     if (numBytesRcvd == 0) {
-        log(INFO, "Remote socket %d closed connection", remoteSocket);
         return RELAY_DONE;
     }
     buffer_write_adv(data->remoteBuffer, numBytesRcvd); // Avanzar el puntero de escritura del buffer
@@ -280,7 +271,6 @@ unsigned handleRelayRemoteWrite(struct selector_key *key) {
         return RELAY_ERROR;
     }
     if (numBytesSent == 0) {
-        log(INFO, "Remote socket %d closed connection", remoteSocket);
         return RELAY_DONE ;
     }
     buffer_read_adv(data->clientBuffer, numBytesSent); // Avanzar el puntero de lectura del buffer

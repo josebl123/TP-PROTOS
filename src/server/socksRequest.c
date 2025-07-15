@@ -49,7 +49,6 @@ unsigned connectWrite(struct selector_key * key) {
 
     data->responseStatus = SOCKS5_SUCCEEDED; // Set response status to success
     data->addressResolved = 1;
-    metrics_add_dns_resolution();
     if (data->destination.addressType == DOMAINNAME) {
         if (selector_notify_block(key->s,data->clientSocket, NULL) != SELECTOR_SUCCESS) {
             log(ERROR, "Failed to notify selector for client socket %d", key->fd);
