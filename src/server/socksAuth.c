@@ -111,7 +111,7 @@ unsigned handle_hello_write(struct selector_key *key) {
 unsigned attempt_auth_write(struct selector_key *key) {
     client_data *data = key->data;
     buffer_reset(data->client_buffer);
-    buffer_write(data->client_buffer, SOCKS_VERSION); // Versión del protocolo SOCKS
+    buffer_write(data->client_buffer, SUBNEGOTIATION_VERSION); // Versión del protocolo de subnegociación
     bool success=0;
     for (int i=0; i < MAX_USERS && socks_args->users[i].name != NULL; i++) {
         if (strcmp(socks_args->users[i].name, data->auth_info.username) == 0 &&

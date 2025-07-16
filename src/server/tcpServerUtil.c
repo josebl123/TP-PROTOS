@@ -478,7 +478,7 @@ unsigned handle_callback(struct selector_key *key, void *data) {
 
     free(res); // Free the DNS response data
 
-    return handle_domain_resolve(key, data); // Call the domain resolve handler to continue processing
+    return handle_domain_resolve(key, NULL); // Call the domain resolve handler to continue processing
 }
 
 
@@ -541,7 +541,7 @@ void handle_master_close(struct selector_key *key) {
 }
 
 void handle_master_read(struct selector_key *key) {
-    struct sockaddr_in address;
+    struct sockaddr_storage address;
     socklen_t addr_len = sizeof(address);
 
     // aceptamos
@@ -559,11 +559,12 @@ void handle_master_read(struct selector_key *key) {
     }
 
     getpeername(new_socket, (struct sockaddr*)&address, &addr_len);
-    if (address.sin_family != AF_INET && address.sin_family != AF_INET6) {
-        log(ERROR, "Unsupported address family: %d", address.sin_family);
+    if (((struct sockaddr *)&address)->sa_family != AF_INET &&
+      ((struct sockaddr *)&address)->sa_family != AF_INET6) {
+        log(ERROR, "Unsupported address family: %d", ((struct sockaddr *)&address)->sa_family);
         close(new_socket);
         return;
-    }
+      }
 
     // Prepare client data structure
     client_data *data = calloc(1, sizeof(client_data));
@@ -578,11 +579,12 @@ void handle_master_read(struct selector_key *key) {
     }
 
     // Set origin info
-    if (address.sin_family == AF_INET) {
+    if (((struct sockaddr *)&address)->sa_family) {
+        const struct sockaddr_in * addr4 = (struct sockaddr_in *)&address;
         data->origin.address_type = IPV4;
-        data->origin.address.ipv4 = address.sin_addr.s_addr;
-        data->origin.port = ntohs(address.sin_port);
-    } else if (address.sin_family == AF_INET6) {
+        data->origin.address.ipv4 = addr4->sin_addr.s_addr;
+        data->origin.port = ntohs(addr4->sin_port);
+    } else if (((struct sockaddr *)&address)->sa_family) {
         data->origin.address_type = IPV6;
         const struct sockaddr_in6 *addr6 = (struct sockaddr_in6 *)&address;
         memcpy(&data->origin.address.ipv6, &addr6->sin6_addr, sizeof(struct in6_addr));
@@ -596,7 +598,6 @@ void handle_master_read(struct selector_key *key) {
         free(data->client_buffer);
         free(data);
         close(new_socket);
-        return;
     }
 }
 

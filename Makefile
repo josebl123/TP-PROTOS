@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -g -Isrc/utils -D_GNU_SOURCE
+CFLAGS = -Wall -Wextra -O3 -Isrc/utils -D_GNU_SOURCE
 BIN = server
 CLIENT_BIN = client
 TEST_BIN = test_program
